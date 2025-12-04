@@ -1,0 +1,319 @@
+import { createClient } from '@supabase/supabase-js';
+
+// 환경 변수에서 Supabase 설정 가져오기
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+// 클라이언트 사이드용 Supabase 클라이언트
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+// 데이터베이스 타입 정의
+export interface Profile {
+  id: string;
+  name_ko: string;
+  name_en: string;
+  title_ko: string;
+  title_en: string;
+  bio_ko: string;
+  bio_en: string;
+  email: string;
+  phone?: string;
+  linkedin?: string;
+  github?: string;
+  profile_image?: string;
+  resume_url?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Project {
+  id: string;
+  title_ko: string;
+  title_en: string;
+  description_ko: string;
+  description_en: string;
+  role_ko: string;
+  role_en: string;
+  period: string;
+  thumbnail?: string;
+  images: string[];
+  tags: string[];
+  link?: string;
+  is_visible: boolean;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Skill {
+  id: string;
+  category_ko: string;
+  category_en: string;
+  name: string;
+  level: number; // 1-5
+  icon?: string;
+  order_index: number;
+}
+
+export interface Experience {
+  id: string;
+  company_ko: string;
+  company_en: string;
+  position_ko: string;
+  position_en: string;
+  description_ko: string;
+  description_en: string;
+  start_date: string;
+  end_date?: string;
+  is_current: boolean;
+  order_index: number;
+}
+
+export interface SiteSettings {
+  id: string;
+  hero_title_ko: string;
+  hero_title_en: string;
+  hero_subtitle_ko: string;
+  hero_subtitle_en: string;
+  about_title_ko: string;
+  about_title_en: string;
+  contact_cta_ko: string;
+  contact_cta_en: string;
+  meta_description_ko: string;
+  meta_description_en: string;
+}
+
+// API 함수들
+export const api = {
+  // 프로필 관련
+  async getProfile(): Promise<Profile | null> {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .single();
+    
+    if (error) {
+      console.error('Error fetching profile:', error);
+      return null;
+    }
+    return data;
+  },
+
+  async updateProfile(profile: Partial<Profile>): Promise<Profile | null> {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ ...profile, updated_at: new Date().toISOString() })
+      .eq('id', profile.id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error updating profile:', error);
+      return null;
+    }
+    return data;
+  },
+
+  // 프로젝트 관련
+  async getProjects(includeHidden = false): Promise<Project[]> {
+    let query = supabase
+      .from('projects')
+      .select('*')
+      .order('order_index', { ascending: true });
+    
+    if (!includeHidden) {
+      query = query.eq('is_visible', true);
+    }
+    
+    const { data, error } = await query;
+    
+    if (error) {
+      console.error('Error fetching projects:', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  async getProject(id: string): Promise<Project | null> {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
+    if (error) {
+      console.error('Error fetching project:', error);
+      return null;
+    }
+    return data;
+  },
+
+  async createProject(project: Omit<Project, 'id' | 'created_at' | 'updated_at'>): Promise<Project | null> {
+    const { data, error } = await supabase
+      .from('projects')
+      .insert(project)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error creating project:', error);
+      return null;
+    }
+    return data;
+  },
+
+  async updateProject(id: string, project: Partial<Project>): Promise<Project | null> {
+    const { data, error } = await supabase
+      .from('projects')
+      .update({ ...project, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error updating project:', error);
+      return null;
+    }
+    return data;
+  },
+
+  async deleteProject(id: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('projects')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error deleting project:', error);
+      return false;
+    }
+    return true;
+  },
+
+  async toggleProjectVisibility(id: string, isVisible: boolean): Promise<boolean> {
+    const { error } = await supabase
+      .from('projects')
+      .update({ is_visible: isVisible, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error toggling project visibility:', error);
+      return false;
+    }
+    return true;
+  },
+
+  // 스킬 관련
+  async getSkills(): Promise<Skill[]> {
+    const { data, error } = await supabase
+      .from('skills')
+      .select('*')
+      .order('order_index', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching skills:', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  // 경력 관련
+  async getExperiences(): Promise<Experience[]> {
+    const { data, error } = await supabase
+      .from('experiences')
+      .select('*')
+      .order('order_index', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching experiences:', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  // 사이트 설정
+  async getSiteSettings(): Promise<SiteSettings | null> {
+    const { data, error } = await supabase
+      .from('site_settings')
+      .select('*')
+      .single();
+    
+    if (error) {
+      console.error('Error fetching site settings:', error);
+      return null;
+    }
+    return data;
+  },
+
+  // 이미지 업로드
+  async uploadImage(file: File, bucket: string = 'portfolio-images'): Promise<string | null> {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+    
+    const { error } = await supabase.storage
+      .from(bucket)
+      .upload(fileName, file);
+    
+    if (error) {
+      console.error('Error uploading image:', error);
+      return null;
+    }
+    
+    const { data } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(fileName);
+    
+    return data.publicUrl;
+  },
+
+  // 이미지 삭제
+  async deleteImage(url: string, bucket: string = 'portfolio-images'): Promise<boolean> {
+    const fileName = url.split('/').pop();
+    if (!fileName) return false;
+    
+    const { error } = await supabase.storage
+      .from(bucket)
+      .remove([fileName]);
+    
+    if (error) {
+      console.error('Error deleting image:', error);
+      return false;
+    }
+    return true;
+  },
+};
+
+// 인증 관련
+export const auth = {
+  async signIn(email: string, password: string) {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    
+    if (error) {
+      console.error('Error signing in:', error);
+      return null;
+    }
+    return data;
+  },
+
+  async signOut() {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Error signing out:', error);
+      return false;
+    }
+    return true;
+  },
+
+  async getSession() {
+    const { data: { session } } = await supabase.auth.getSession();
+    return session;
+  },
+
+  onAuthStateChange(callback: (event: string, session: any) => void) {
+    return supabase.auth.onAuthStateChange(callback);
+  },
+};
+

@@ -1,0 +1,75 @@
+{
+  "nav": {
+    "home": "Home",
+    "about": "About",
+    "projects": "Projects",
+    "experience": "Experience",
+    "contact": "Contact"
+  },
+  "hero": {
+    "greeting": "Hello",
+    "role": "PM · Service Content Planner",
+    "description": "A PM who structures problems, designs flows, and connects execution to results",
+    "cta": "View Projects",
+    "contact": "Contact Me"
+  },
+  "about": {
+    "title": "About Me",
+    "subtitle": "Introduction",
+    "description": "A passionate planner who identifies user needs and harmonizes them with business objectives.",
+    "strengths": {
+      "title": "Core Competencies",
+      "strategy": {
+        "title": "Service Strategy",
+        "desc": "Strategy development through market analysis and user research"
+      },
+      "ux": {
+        "title": "UX Planning",
+        "desc": "User-centered intuitive service design"
+      },
+      "data": {
+        "title": "Data Analysis",
+        "desc": "Data-driven decision making and performance measurement"
+      },
+      "communication": {
+        "title": "Communication",
+        "desc": "Smooth collaboration and coordination with related departments"
+      }
+    }
+  },
+  "projects": {
+    "title": "Projects",
+    "subtitle": "Featured Work",
+    "viewMore": "View Details",
+    "role": "Role",
+    "period": "Period"
+  },
+  "experience": {
+    "title": "Experience",
+    "subtitle": "Work History",
+    "present": "Present"
+  },
+  "skills": {
+    "title": "Skills",
+    "subtitle": "Skill Set"
+  },
+  "contact": {
+    "title": "Contact",
+    "subtitle": "Get in Touch",
+    "description": "Feel free to reach out if you'd like to discuss new opportunities or collaborations.",
+    "email": "Email",
+    "phone": "Phone",
+    "social": "Social Media",
+    "cta": "Send Email"
+  },
+  "footer": {
+    "copyright": "© 2024 Jihee Yoon. All rights reserved.",
+    "madeWith": "Made with ❤️"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Retry"
+  }
+}
+
