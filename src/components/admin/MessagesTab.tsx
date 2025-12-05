@@ -1,10 +1,31 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Save, MessageSquare, User, Mail, Clock, Check, Send, Trash2, Lock, Unlock, Bell, X, Edit3, Loader2, Building2, EyeOff, Eye } from 'lucide-react';
+import { Save, MessageSquare, User, Mail, Clock, Check, Send, Trash2, Lock, Unlock, Bell, X, Edit3, Loader2, Building2, EyeOff, Eye, RefreshCw } from 'lucide-react';
 import { getMessages, saveMessages, translateText, type GuestMessage } from '@/lib/siteData';
 import { sendReplyEmail } from '@/lib/email';
+import { api, isSupabaseAvailable, type GuestbookDB } from '@/lib/supabase';
+
+// Supabase DB 타입을 GuestMessage 타입으로 변환
+function dbToGuestMessage(db: GuestbookDB): GuestMessage {
+  return {
+    id: db.id,
+    name: db.name,
+    company: db.company,
+    email: db.email,
+    message: db.message,
+    message_en: db.message_en,
+    allowNotification: db.allow_notification,
+    isSecret: db.is_secret,
+    createdAt: db.created_at,
+    isRead: db.is_read,
+    reply: db.reply,
+    reply_en: db.reply_en,
+    replyAt: db.reply_at,
+    isReplyLocked: db.is_reply_locked,
+  };
+}
 
 export default function MessagesTab() {
   const [messages, setMessages] = useState<GuestMessage[]>([]);
@@ -14,14 +35,38 @@ export default function MessagesTab() {
   const [isReplyModalOpen, setIsReplyModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'public' | 'secret'>('all');
+  const [useSupabase, setUseSupabase] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // 데이터 로드
+  const loadMessages = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      if (isSupabaseAvailable()) {
+        const dbMessages = await api.getGuestbook();
+        setMessages(dbMessages.map(dbToGuestMessage));
+        setUseSupabase(true);
+        setIsLoading(false);
+        return;
+      }
+    } catch (error) {
+      console.warn('Supabase 로드 실패, 로컬스토리지 사용:', error);
+    }
+    // 폴백: 로컬스토리지
+    setMessages(getMessages());
+    setUseSupabase(false);
+    setIsLoading(false);
+  }, []);
 
   useEffect(() => {
-    setMessages(getMessages());
-  }, []);
+    loadMessages();
+  }, [loadMessages]);
 
   const handleSave = () => {
     setSaving(true);
-    saveMessages(messages);
+    if (!useSupabase) {
+      saveMessages(messages);
+    }
     setTimeout(() => setSaving(false), 1000);
   };
 
@@ -45,29 +90,51 @@ export default function MessagesTab() {
     });
   };
 
-  const handleMarkAsRead = (id: string) => {
+  const handleMarkAsRead = async (id: string) => {
+    if (useSupabase) {
+      await api.markGuestbookAsRead(id);
+    }
     const updated = messages.map(m => m.id === id ? { ...m, isRead: true } : m);
     setMessages(updated);
-    saveMessages(updated);
+    if (!useSupabase) saveMessages(updated);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('정말 삭제하시겠습니까?')) return;
+    if (useSupabase) {
+      const success = await api.deleteGuestbookMessage(id);
+      if (!success) {
+        alert('삭제 실패');
+        return;
+      }
+    }
     const updated = messages.filter(m => m.id !== id);
     setMessages(updated);
-    saveMessages(updated);
+    if (!useSupabase) saveMessages(updated);
   };
 
-  const handleToggleLock = (id: string) => {
+  const handleToggleLock = async (id: string) => {
+    const target = messages.find(m => m.id === id);
+    if (!target) return;
+    
+    if (useSupabase) {
+      await api.updateGuestbookMessage(id, { is_reply_locked: !target.isReplyLocked });
+    }
     const updated = messages.map(m => m.id === id ? { ...m, isReplyLocked: !m.isReplyLocked } : m);
     setMessages(updated);
-    saveMessages(updated);
+    if (!useSupabase) saveMessages(updated);
   };
 
-  const handleToggleSecret = (id: string) => {
+  const handleToggleSecret = async (id: string) => {
+    const target = messages.find(m => m.id === id);
+    if (!target) return;
+    
+    if (useSupabase) {
+      await api.updateGuestbookMessage(id, { is_secret: !target.isSecret });
+    }
     const updated = messages.map(m => m.id === id ? { ...m, isSecret: !m.isSecret } : m);
     setMessages(updated);
-    saveMessages(updated);
+    if (!useSupabase) saveMessages(updated);
   };
 
   const handleSaveReply = async (messageId: string, reply: string, isLocked: boolean, shouldSendEmail: boolean) => {
@@ -84,13 +151,18 @@ export default function MessagesTab() {
       reply_en = undefined;
     }
     
+    // Supabase 사용 시
+    if (useSupabase) {
+      await api.addReplyToGuestbook(messageId, reply, reply_en, isLocked);
+    }
+    
     const updated = messages.map(m =>
       m.id === messageId
         ? { ...m, reply, reply_en, isReplyLocked: isLocked, replyAt: new Date().toISOString(), isRead: true }
         : m
     );
     setMessages(updated);
-    saveMessages(updated);
+    if (!useSupabase) saveMessages(updated);
     
     // 이메일 알림 발송
     if (shouldSendEmail && targetMessage?.email && targetMessage.allowNotification) {
@@ -140,13 +212,25 @@ export default function MessagesTab() {
       message_en = undefined;
     }
     
+    // Supabase 사용 시
+    if (useSupabase) {
+      await api.updateGuestbookMessage(messageId, {
+        name,
+        company,
+        email,
+        message,
+        message_en,
+        is_secret: isSecret,
+      });
+    }
+    
     const updated = messages.map(m =>
       m.id === messageId
         ? { ...m, name, company, email, message, message_en, isSecret }
         : m
     );
     setMessages(updated);
-    saveMessages(updated);
+    if (!useSupabase) saveMessages(updated);
     setIsEditModalOpen(false);
     setEditingMessage(null);
   };
@@ -155,12 +239,29 @@ export default function MessagesTab() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-white">메시지 관리</h2>
+          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+            메시지 관리
+            {useSupabase && (
+              <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400 font-normal">
+                Supabase 연동
+              </span>
+            )}
+          </h2>
           <p className="text-sm text-[--text-secondary]">
             총 {messages.length}개 | 읽지 않음 {unreadCount}개 | 비밀글 {secretCount}개
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={loadMessages}
+            disabled={isLoading}
+            className="p-2 rounded-lg bg-[--bg-tertiary] text-[--text-secondary] hover:text-white transition-colors"
+            title="새로고침"
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </motion.button>
           <div className="flex gap-1 bg-[--bg-tertiary] rounded-lg p-1">
             {(['all', 'public', 'secret'] as const).map(type => (
               <button
@@ -178,21 +279,28 @@ export default function MessagesTab() {
               </button>
             ))}
           </div>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={handleSave}
-            disabled={saving}
-            className="btn-primary flex items-center gap-2"
-          >
-            <Save className="w-4 h-4" />
-            {saving ? '저장 중...' : '저장'}
-          </motion.button>
+          {!useSupabase && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleSave}
+              disabled={saving}
+              className="btn-primary flex items-center gap-2"
+            >
+              <Save className="w-4 h-4" />
+              {saving ? '저장 중...' : '저장'}
+            </motion.button>
+          )}
         </div>
       </div>
 
       <div className="space-y-4">
-        {filteredMessages.length === 0 ? (
+        {isLoading ? (
+          <div className="text-center py-12 text-[--text-secondary]">
+            <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-[--accent-color]" />
+            <p>메시지 불러오는 중...</p>
+          </div>
+        ) : filteredMessages.length === 0 ? (
           <div className="text-center py-12 text-[--text-secondary]">
             <MessageSquare className="w-12 h-12 mx-auto mb-4 opacity-50" />
             <p>메시지가 없습니다.</p>

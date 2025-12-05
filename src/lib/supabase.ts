@@ -100,6 +100,25 @@ export interface SiteSettings {
   meta_description_en: string;
 }
 
+// 게스트북 타입 (Supabase 스네이크 케이스)
+export interface GuestbookDB {
+  id: string;
+  name: string;
+  company?: string;
+  email?: string;
+  message: string;
+  message_en?: string;
+  allow_notification: boolean;
+  is_secret: boolean;
+  is_read: boolean;
+  reply?: string;
+  reply_en?: string;
+  reply_at?: string;
+  is_reply_locked: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // API 함수들
 export const api = {
   // 프로필 관련
@@ -362,6 +381,176 @@ export const api = {
       return false;
     }
     return true;
+  },
+
+  // 게스트북 관련
+  async getGuestbook(): Promise<GuestbookDB[]> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return [];
+    }
+    
+    const { data, error } = await supabase
+      .from('guestbook')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching guestbook:', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  async createGuestbookMessage(message: Omit<GuestbookDB, 'id' | 'created_at' | 'updated_at' | 'is_read' | 'reply' | 'reply_en' | 'reply_at' | 'is_reply_locked'>): Promise<GuestbookDB | null> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return null;
+    }
+    
+    const { data, error } = await supabase
+      .from('guestbook')
+      .insert({
+        ...message,
+        is_read: false,
+        is_reply_locked: false,
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error creating guestbook message:', error);
+      return null;
+    }
+    return data;
+  },
+
+  async updateGuestbookMessage(id: string, updates: Partial<GuestbookDB>): Promise<GuestbookDB | null> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return null;
+    }
+    
+    const { data, error } = await supabase
+      .from('guestbook')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error updating guestbook message:', error);
+      return null;
+    }
+    return data;
+  },
+
+  async deleteGuestbookMessage(id: string): Promise<boolean> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return false;
+    }
+    
+    const { error } = await supabase
+      .from('guestbook')
+      .delete()
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error deleting guestbook message:', error);
+      return false;
+    }
+    return true;
+  },
+
+  async addReplyToGuestbook(id: string, reply: string, reply_en?: string, is_reply_locked: boolean = false): Promise<GuestbookDB | null> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return null;
+    }
+    
+    const { data, error } = await supabase
+      .from('guestbook')
+      .update({
+        reply,
+        reply_en,
+        reply_at: new Date().toISOString(),
+        is_reply_locked,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error adding reply:', error);
+      return null;
+    }
+    return data;
+  },
+
+  async markGuestbookAsRead(id: string): Promise<boolean> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return false;
+    }
+    
+    const { error } = await supabase
+      .from('guestbook')
+      .update({ is_read: true, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    
+    if (error) {
+      console.error('Error marking as read:', error);
+      return false;
+    }
+    return true;
+  },
+
+  // 방문자 카운트 관련
+  async getVisitorCount(): Promise<number> {
+    if (!supabase) {
+      return 0;
+    }
+    
+    const { data, error } = await supabase
+      .from('visitor_count')
+      .select('count')
+      .eq('id', 'global')
+      .single();
+    
+    if (error) {
+      console.error('Error fetching visitor count:', error);
+      return 0;
+    }
+    return data?.count || 0;
+  },
+
+  async incrementVisitorCount(): Promise<number> {
+    if (!supabase) {
+      return 0;
+    }
+    
+    // RPC 함수로 원자적 증가 (동시 접속 문제 해결)
+    const { data, error } = await supabase.rpc('increment_visitor_count');
+    
+    if (error) {
+      console.error('Error incrementing visitor count:', error);
+      // RPC 실패 시 직접 업데이트 시도
+      const { data: currentData } = await supabase
+        .from('visitor_count')
+        .select('count')
+        .eq('id', 'global')
+        .single();
+      
+      const newCount = (currentData?.count || 0) + 1;
+      await supabase
+        .from('visitor_count')
+        .upsert({ id: 'global', count: newCount });
+      
+      return newCount;
+    }
+    return data || 0;
   },
 };
 

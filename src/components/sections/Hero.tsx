@@ -193,7 +193,7 @@ export default function Hero() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.6 }}
-            className="text-base md:text-lg text-[var(--text-secondary)] mb-10 leading-relaxed max-w-2xl mx-auto"
+            className="text-base md:text-lg text-[var(--text-secondary)] mb-10 leading-snug max-w-2xl mx-auto whitespace-pre-line"
           >
             {content.desc}
           </motion.p>

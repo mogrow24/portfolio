@@ -1,9 +1,11 @@
 // 방문자 수 관리 유틸리티
-// localStorage를 사용한 간단한 방문자 카운터
+// Supabase를 우선 사용, 폴백으로 localStorage
+
+import { api, isSupabaseAvailable } from './supabase';
 
 const VISITOR_COUNT_KEY = 'portfolio_visitor_count';
 const VISITOR_ID_KEY = 'portfolio_visitor_id';
-const BASE_VISITOR_COUNT = 150; // 기준 방문자 수 (배포 시 누적 유지용)
+const SESSION_COUNTED_KEY = 'portfolio_session_counted';
 
 // 고유 방문자 ID 생성 또는 가져오기
 export function getVisitorId(): string {
@@ -17,19 +19,72 @@ export function getVisitorId(): string {
   return visitorId;
 }
 
-// 방문자 수 가져오기
-export function getVisitorCount(): number {
-  if (typeof window === 'undefined') return BASE_VISITOR_COUNT;
+// 방문자 수 가져오기 (Supabase 우선)
+export async function getVisitorCountAsync(): Promise<number> {
+  if (typeof window === 'undefined') return 0;
   
+  // Supabase 사용 가능하면 전역 카운터 조회
+  if (isSupabaseAvailable()) {
+    try {
+      const count = await api.getVisitorCount();
+      if (count > 0) {
+        // 로컬에도 캐시
+        localStorage.setItem(VISITOR_COUNT_KEY, count.toString());
+        return count;
+      }
+    } catch (error) {
+      console.warn('Supabase 방문자 수 조회 실패:', error);
+    }
+  }
+  
+  // 폴백: localStorage
   const count = localStorage.getItem(VISITOR_COUNT_KEY);
-  const localCount = count ? parseInt(count, 10) : 0;
-  // 기준값 + 로컬 카운트
-  return BASE_VISITOR_COUNT + localCount;
+  return count ? parseInt(count, 10) : 0;
+}
+
+// 동기 버전 (캐시된 값 사용)
+export function getVisitorCount(): number {
+  if (typeof window === 'undefined') return 0;
+  const count = localStorage.getItem(VISITOR_COUNT_KEY);
+  return count ? parseInt(count, 10) : 0;
 }
 
 // 방문자 수 증가 (새로운 방문자만)
+export async function incrementVisitorCountAsync(): Promise<number> {
+  if (typeof window === 'undefined') return 0;
+  
+  // 이미 이 세션에서 카운트했는지 확인
+  const alreadyCounted = sessionStorage.getItem(SESSION_COUNTED_KEY);
+  if (alreadyCounted) {
+    return getVisitorCount();
+  }
+  
+  // Supabase 사용 가능하면 전역 카운터 증가
+  if (isSupabaseAvailable()) {
+    try {
+      const newCount = await api.incrementVisitorCount();
+      if (newCount > 0) {
+        localStorage.setItem(VISITOR_COUNT_KEY, newCount.toString());
+        sessionStorage.setItem(SESSION_COUNTED_KEY, 'true');
+        return newCount;
+      }
+    } catch (error) {
+      console.warn('Supabase 방문자 수 증가 실패:', error);
+    }
+  }
+  
+  // 폴백: localStorage
+  const count = localStorage.getItem(VISITOR_COUNT_KEY);
+  const localCount = count ? parseInt(count, 10) : 0;
+  const newLocalCount = localCount + 1;
+  localStorage.setItem(VISITOR_COUNT_KEY, newLocalCount.toString());
+  sessionStorage.setItem(SESSION_COUNTED_KEY, 'true');
+  return newLocalCount;
+}
+
+// 동기 버전 (localStorage만 사용)
 export function incrementVisitorCount(): number {
-  if (typeof window === 'undefined') return BASE_VISITOR_COUNT;
+  if (typeof window === 'undefined') return 0;
   
   const sessionKey = 'portfolio_session_counted';
   const alreadyCounted = sessionStorage.getItem(sessionKey);
@@ -40,7 +95,7 @@ export function incrementVisitorCount(): number {
     const newLocalCount = localCount + 1;
     localStorage.setItem(VISITOR_COUNT_KEY, newLocalCount.toString());
     sessionStorage.setItem(sessionKey, 'true');
-    return BASE_VISITOR_COUNT + newLocalCount;
+    return newLocalCount;
   }
   
   return getVisitorCount();
@@ -82,5 +137,3 @@ export function getVisitRecords(): VisitRecord[] {
   const records = localStorage.getItem(VISIT_RECORDS_KEY);
   return records ? JSON.parse(records) : [];
 }
-
-

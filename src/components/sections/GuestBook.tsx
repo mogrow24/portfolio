@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare,
@@ -21,9 +21,31 @@ import {
   ChevronDown,
   ChevronUp,
   Plus,
+  Loader2,
 } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
 import { getMessages, saveMessages, translateText, type GuestMessage } from '@/lib/siteData';
+import { api, isSupabaseAvailable, type GuestbookDB } from '@/lib/supabase';
+
+// Supabase DB 타입을 GuestMessage 타입으로 변환
+function dbToGuestMessage(db: GuestbookDB): GuestMessage {
+  return {
+    id: db.id,
+    name: db.name,
+    company: db.company,
+    email: db.email,
+    message: db.message,
+    message_en: db.message_en,
+    allowNotification: db.allow_notification,
+    isSecret: db.is_secret,
+    createdAt: db.created_at,
+    isRead: db.is_read,
+    reply: db.reply,
+    reply_en: db.reply_en,
+    replyAt: db.reply_at,
+    isReplyLocked: db.is_reply_locked,
+  };
+}
 
 type FilterType = 'all' | 'answered' | 'pending';
 
@@ -144,7 +166,7 @@ function QuestionModal({ isOpen, onClose, onSubmit, locale }: {
     setTimeout(() => {
       onClose();
       setStatus('idle');
-    }, 1500);
+    }, 800); // 0.8초 후 팝업 닫힘
   };
 
   return (
@@ -459,17 +481,36 @@ export default function GuestBook() {
   const [filter, setFilter] = useState<FilterType>('all');
   const [isClient, setIsClient] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [useSupabase, setUseSupabase] = useState(false);
+
+  // 데이터 로드 (Supabase 우선, 폴백: 로컬스토리지)
+  const loadMessages = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      if (isSupabaseAvailable()) {
+        const dbMessages = await api.getGuestbook();
+        if (dbMessages.length > 0 || isSupabaseAvailable()) {
+          setMessages(dbMessages.map(dbToGuestMessage));
+          setUseSupabase(true);
+          setIsLoading(false);
+          return;
+        }
+      }
+    } catch (error) {
+      console.warn('Supabase 로드 실패, 로컬스토리지 사용:', error);
+    }
+    // 폴백: 로컬스토리지
+    const saved = getMessages();
+    setMessages(saved);
+    setUseSupabase(false);
+    setIsLoading(false);
+  }, []);
 
   useEffect(() => {
     setIsClient(true);
-    const saved = getMessages();
-    setMessages(saved);
-  }, []);
-
-  const persistMessages = (data: GuestMessage[]) => {
-    setMessages(data);
-    saveMessages(data);
-  };
+    loadMessages();
+  }, [loadMessages]);
 
   const filteredMessages = useMemo(() => {
     let filtered = messages;
@@ -489,7 +530,6 @@ export default function GuestBook() {
     if (locale === 'en') {
       try {
         translatedMessage = await translateText(originalMessage, 'ko', 'en');
-        // 번역 결과가 원본과 같으면 undefined
         if (translatedMessage === originalMessage) {
           translatedMessage = undefined;
         }
@@ -498,6 +538,29 @@ export default function GuestBook() {
       }
     }
 
+    // Supabase 사용 시
+    if (useSupabase && isSupabaseAvailable()) {
+      try {
+        const result = await api.createGuestbookMessage({
+          name: form.name.trim(),
+          company: form.company.trim() || undefined,
+          email: form.email.trim() || undefined,
+          message: originalMessage,
+          message_en: translatedMessage,
+          allow_notification: !!form.email && form.allowNotification,
+          is_secret: form.isSecret,
+        });
+        if (result) {
+          // 새 메시지를 상단에 추가
+          setMessages(prev => [dbToGuestMessage(result), ...prev]);
+          return;
+        }
+      } catch (error) {
+        console.error('Supabase 저장 실패:', error);
+      }
+    }
+
+    // 폴백: 로컬스토리지
     const newMessage: GuestMessage = {
       id:
         typeof crypto !== 'undefined' && crypto.randomUUID
@@ -506,8 +569,8 @@ export default function GuestBook() {
       name: form.name.trim(),
       company: form.company.trim() || undefined,
       email: form.email.trim() || undefined,
-      message: originalMessage,  // 원본 (한글)
-      message_en: translatedMessage,  // 영문 번역
+      message: originalMessage,
+      message_en: translatedMessage,
       allowNotification: !!form.email && form.allowNotification,
       isSecret: form.isSecret,
       createdAt: new Date().toISOString(),
@@ -516,7 +579,8 @@ export default function GuestBook() {
     };
 
     const updated = [newMessage, ...messages];
-    persistMessages(updated);
+    setMessages(updated);
+    saveMessages(updated);
   };
 
   if (!isClient) {
@@ -583,7 +647,12 @@ export default function GuestBook() {
           </div>
 
           {/* 메시지 리스트 */}
-          {filteredMessages.length === 0 ? (
+          {isLoading ? (
+            <div className="glass-card rounded-2xl p-12 text-center text-[--text-secondary]">
+              <Loader2 className="w-8 h-8 mx-auto mb-4 animate-spin text-[--accent-color]" />
+              <p className="text-sm">Loading...</p>
+            </div>
+          ) : filteredMessages.length === 0 ? (
             <div className="glass-card rounded-2xl p-12 text-center text-[--text-secondary]">
               <ShieldCheck className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p className="text-sm">{t.empty}</p>

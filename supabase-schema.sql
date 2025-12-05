@@ -287,4 +287,101 @@ VALUES
 ('협업', 'Collaboration', 'Slack', 5, 7),
 ('협업', 'Collaboration', 'Confluence', 4, 8);
 
+-- =====================================================
+-- 6. 게스트북(Q&A) 테이블
+-- =====================================================
+CREATE TABLE IF NOT EXISTS guestbook (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR(100) NOT NULL,
+  company VARCHAR(200),
+  email VARCHAR(255),
+  message TEXT NOT NULL,
+  message_en TEXT,
+  allow_notification BOOLEAN DEFAULT false,
+  is_secret BOOLEAN DEFAULT false,
+  is_read BOOLEAN DEFAULT false,
+  reply TEXT,
+  reply_en TEXT,
+  reply_at TIMESTAMP WITH TIME ZONE,
+  is_reply_locked BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 게스트북 인덱스
+CREATE INDEX IF NOT EXISTS idx_guestbook_created ON guestbook(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_guestbook_read ON guestbook(is_read);
+
+-- 게스트북 RLS
+ALTER TABLE guestbook ENABLE ROW LEVEL SECURITY;
+
+-- 누구나 질문 등록 가능
+CREATE POLICY "Anyone can insert guestbook"
+  ON guestbook FOR INSERT
+  WITH CHECK (true);
+
+-- 공개 질문은 누구나 조회, 비밀글은 인증된 사용자만
+CREATE POLICY "Public or authenticated can view guestbook"
+  ON guestbook FOR SELECT
+  USING (is_secret = false OR auth.role() = 'authenticated');
+
+-- 인증된 사용자만 수정/삭제 가능
+CREATE POLICY "Only authenticated users can update guestbook"
+  ON guestbook FOR UPDATE
+  USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Only authenticated users can delete guestbook"
+  ON guestbook FOR DELETE
+  USING (auth.role() = 'authenticated');
+
+-- =====================================================
+-- 7. 방문자 카운트 테이블
+-- =====================================================
+CREATE TABLE IF NOT EXISTS visitor_count (
+  id VARCHAR(50) PRIMARY KEY DEFAULT 'global',
+  count INTEGER DEFAULT 0,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 초기 방문자 카운트 데이터
+INSERT INTO visitor_count (id, count) 
+VALUES ('global', 0) 
+ON CONFLICT (id) DO NOTHING;
+
+-- 방문자 카운트 RLS
+ALTER TABLE visitor_count ENABLE ROW LEVEL SECURITY;
+
+-- 누구나 조회 가능
+CREATE POLICY "Anyone can view visitor count"
+  ON visitor_count FOR SELECT
+  USING (true);
+
+-- 누구나 업데이트 가능 (카운트 증가용)
+CREATE POLICY "Anyone can update visitor count"
+  ON visitor_count FOR UPDATE
+  USING (true);
+
+-- 방문자 수 원자적 증가를 위한 RPC 함수
+CREATE OR REPLACE FUNCTION increment_visitor_count()
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  new_count INTEGER;
+BEGIN
+  UPDATE visitor_count 
+  SET count = count + 1, updated_at = NOW()
+  WHERE id = 'global'
+  RETURNING count INTO new_count;
+  
+  IF new_count IS NULL THEN
+    INSERT INTO visitor_count (id, count) VALUES ('global', 1)
+    RETURNING count INTO new_count;
+  END IF;
+  
+  RETURN new_count;
+END;
+$$;
+
 

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowUp, Users, Sparkles } from 'lucide-react';
 import SecretAccess from '@/components/ui/SecretAccess';
-import { incrementVisitorCount, getVisitorCount } from '@/lib/visitors';
+import { incrementVisitorCountAsync, getVisitorCount } from '@/lib/visitors';
 import { useLocale } from '@/context/LocaleContext';
 
 const content = {
@@ -30,9 +30,17 @@ export default function Footer() {
 
   useEffect(() => {
     setIsClient(true);
-    // 방문자 수 증가 및 가져오기
-    const count = incrementVisitorCount();
-    setVisitorCount(count);
+    // 방문자 수 증가 및 가져오기 (비동기)
+    const loadVisitorCount = async () => {
+      try {
+        const count = await incrementVisitorCountAsync();
+        setVisitorCount(count);
+      } catch {
+        // 실패 시 로컬 캐시 사용
+        setVisitorCount(getVisitorCount());
+      }
+    };
+    loadVisitorCount();
   }, []);
 
   const scrollToTop = () => {
