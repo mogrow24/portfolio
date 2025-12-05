@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import IntroAnimation from '@/components/ui/IntroAnimation';
 
@@ -12,10 +12,26 @@ export default function PageWrapper({ children }: PageWrapperProps) {
   const [showIntro, setShowIntro] = useState(true);
   const [contentReady, setContentReady] = useState(false);
 
+  // 페이지 로드 시 스크롤을 맨 위로 (강제)
+  useEffect(() => {
+    // 브라우저 스크롤 복원 비활성화
+    if ('scrollRestoration' in history) {
+      history.scrollRestoration = 'manual';
+    }
+    // 즉시 스크롤을 맨 위로
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, []);
+
   const handleIntroComplete = useCallback(() => {
     setShowIntro(false);
     // 인트로가 완전히 사라진 후 콘텐츠 표시
-    setTimeout(() => setContentReady(true), 100);
+    setTimeout(() => {
+      setContentReady(true);
+      // 콘텐츠 표시 후에도 한번 더 스크롤 리셋
+      window.scrollTo(0, 0);
+    }, 100);
   }, []);
 
   return (

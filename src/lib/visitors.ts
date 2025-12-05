@@ -3,6 +3,7 @@
 
 const VISITOR_COUNT_KEY = 'portfolio_visitor_count';
 const VISITOR_ID_KEY = 'portfolio_visitor_id';
+const BASE_VISITOR_COUNT = 150; // 기준 방문자 수 (배포 시 누적 유지용)
 
 // 고유 방문자 ID 생성 또는 가져오기
 export function getVisitorId(): string {
@@ -18,25 +19,28 @@ export function getVisitorId(): string {
 
 // 방문자 수 가져오기
 export function getVisitorCount(): number {
-  if (typeof window === 'undefined') return 0;
+  if (typeof window === 'undefined') return BASE_VISITOR_COUNT;
   
   const count = localStorage.getItem(VISITOR_COUNT_KEY);
-  return count ? parseInt(count, 10) : 0;
+  const localCount = count ? parseInt(count, 10) : 0;
+  // 기준값 + 로컬 카운트
+  return BASE_VISITOR_COUNT + localCount;
 }
 
 // 방문자 수 증가 (새로운 방문자만)
 export function incrementVisitorCount(): number {
-  if (typeof window === 'undefined') return 0;
+  if (typeof window === 'undefined') return BASE_VISITOR_COUNT;
   
   const sessionKey = 'portfolio_session_counted';
   const alreadyCounted = sessionStorage.getItem(sessionKey);
   
   if (!alreadyCounted) {
-    const currentCount = getVisitorCount();
-    const newCount = currentCount + 1;
-    localStorage.setItem(VISITOR_COUNT_KEY, newCount.toString());
+    const count = localStorage.getItem(VISITOR_COUNT_KEY);
+    const localCount = count ? parseInt(count, 10) : 0;
+    const newLocalCount = localCount + 1;
+    localStorage.setItem(VISITOR_COUNT_KEY, newLocalCount.toString());
     sessionStorage.setItem(sessionKey, 'true');
-    return newCount;
+    return BASE_VISITOR_COUNT + newLocalCount;
   }
   
   return getVisitorCount();
