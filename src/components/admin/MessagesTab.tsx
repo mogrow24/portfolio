@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Save, MessageSquare, User, Mail, Clock, Check, Send, Trash2, Lock, Unlock, Bell, X, Edit3, Loader2, Building2, EyeOff, Eye } from 'lucide-react';
-import { getMessages, saveMessages, type GuestMessage } from '@/lib/siteData';
+import { getMessages, saveMessages, translateText, type GuestMessage } from '@/lib/siteData';
 import { sendReplyEmail } from '@/lib/email';
 
 export default function MessagesTab() {
@@ -73,9 +73,20 @@ export default function MessagesTab() {
   const handleSaveReply = async (messageId: string, reply: string, isLocked: boolean, shouldSendEmail: boolean) => {
     const targetMessage = messages.find(m => m.id === messageId);
     
+    // 답변 영어 번역 시도
+    let reply_en: string | undefined;
+    try {
+      const translated = await translateText(reply, 'ko', 'en');
+      if (translated !== reply) {
+        reply_en = translated;
+      }
+    } catch {
+      reply_en = undefined;
+    }
+    
     const updated = messages.map(m =>
       m.id === messageId
-        ? { ...m, reply, isReplyLocked: isLocked, replyAt: new Date().toISOString(), isRead: true }
+        ? { ...m, reply, reply_en, isReplyLocked: isLocked, replyAt: new Date().toISOString(), isRead: true }
         : m
     );
     setMessages(updated);
@@ -83,23 +94,32 @@ export default function MessagesTab() {
     
     // 이메일 알림 발송
     if (shouldSendEmail && targetMessage?.email && targetMessage.allowNotification) {
-      const result = await sendReplyEmail({
-        to: targetMessage.email,
-        name: targetMessage.name,
-        question: targetMessage.message,
-        answer: reply,
-        isLocked: isLocked,
-      });
-      
-      if (result.success) {
-        if (result.simulated) {
-          alert('답변이 저장되었습니다.\n(개발 환경: 이메일 발송이 시뮬레이션되었습니다)');
+      try {
+        const result = await sendReplyEmail({
+          to: targetMessage.email,
+          name: targetMessage.name,
+          question: targetMessage.message,
+          answer: reply,
+          isLocked: isLocked,
+        });
+        
+        if (result.success) {
+          if (result.simulated) {
+            alert('답변이 저장되었습니다.\n(개발 환경: 이메일 발송이 시뮬레이션되었습니다)');
+          } else {
+            alert('답변이 저장되었습니다.\n이메일 알림이 발송되었습니다.');
+          }
         } else {
-          alert('답변이 저장되었습니다.\n이메일 알림이 발송되었습니다.');
+          const errorMsg = result.error || '알 수 없는 오류';
+          console.error('이메일 발송 실패:', errorMsg);
+          alert(`답변은 저장되었지만 이메일 발송에 실패했습니다.\n\n오류: ${errorMsg}\n\n환경 변수(GMAIL_USER, GMAIL_APP_PASSWORD)를 확인해주세요.`);
         }
-      } else {
-        alert(`답변은 저장되었지만 이메일 발송에 실패했습니다.\n${result.error || ''}`);
+      } catch (error) {
+        console.error('이메일 발송 중 예외 발생:', error);
+        alert('답변은 저장되었지만 이메일 발송 중 오류가 발생했습니다.\n\n콘솔을 확인해주세요.');
       }
+    } else if (shouldSendEmail && (!targetMessage?.email || !targetMessage?.allowNotification)) {
+      alert('답변이 저장되었습니다.\n(이메일 주소가 없거나 알림 수신 동의가 없어 이메일을 발송하지 않았습니다)');
     } else {
       alert('답변이 저장되었습니다.');
     }
@@ -108,10 +128,21 @@ export default function MessagesTab() {
     setReplyingMessage(null);
   };
 
-  const handleSaveEditedMessage = (messageId: string, name: string, company: string | undefined, email: string | undefined, message: string, isSecret: boolean) => {
+  const handleSaveEditedMessage = async (messageId: string, name: string, company: string | undefined, email: string | undefined, message: string, isSecret: boolean) => {
+    // 메시지 영어 번역 시도
+    let message_en: string | undefined;
+    try {
+      const translated = await translateText(message, 'ko', 'en');
+      if (translated !== message) {
+        message_en = translated;
+      }
+    } catch {
+      message_en = undefined;
+    }
+    
     const updated = messages.map(m =>
       m.id === messageId
-        ? { ...m, name, company, email, message, isSecret }
+        ? { ...m, name, company, email, message, message_en, isSecret }
         : m
     );
     setMessages(updated);

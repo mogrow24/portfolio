@@ -6,8 +6,8 @@ import { useLocale } from '@/context/LocaleContext';
 
 const content = {
   ko: {
-    subtitle: 'Interview',
-    title: 'Q&A: My Thoughts',
+    subtitle: '인터뷰',
+    title: '저에 대해 더 알아보기',
     interviews: [
       {
         question: 'Q. 왜 기획, PM 일을 선택하게 되었나요?',
@@ -58,14 +58,17 @@ export default function Interview() {
   const t = content[locale as keyof typeof content] || content.ko;
 
   return (
-    <section id="interview" className="py-16 md:py-24">
+    <section id="interview" className="py-20 md:py-28 relative">
+      {/* 상단 장식 라인 */}
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[var(--accent-color)]/20 to-transparent" />
+      
       <div ref={ref} className="section-container">
         {/* 섹션 헤더 - 중앙 정렬 */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6 }}
-          className="text-center mb-10 md:mb-14"
+          className="text-center mb-12 md:mb-16"
         >
           <span className="sub-title">{t.subtitle}</span>
           <h2 className="text-responsive-lg font-extrabold">{t.title}</h2>

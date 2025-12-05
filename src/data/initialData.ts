@@ -233,12 +233,12 @@ export const initialProjects: LocalProject[] = [
 export const initialProfile: LocalProfile = {
   id: '1',
   name_ko: '윤지희',
-  name_en: 'Jihee Yoon',
+  name_en: 'Jihee Yun',
   title_ko: 'PM · 서비스 콘텐츠 기획자',
   title_en: 'PM · Service Content Planner',
   bio_ko: '사용자의 니즈를 파악하고 비즈니스 목표와 조화시키는 것에 열정을 가진 기획자입니다. 복잡한 문제를 단순하게 풀어내고, 팀과의 원활한 커뮤니케이션을 통해 프로젝트를 성공적으로 이끌어갑니다.',
   bio_en: 'A passionate planner who identifies user needs and harmonizes them with business objectives. I simplify complex problems and lead projects to success through smooth communication with teams.',
-  email: 'jihee.yoon@example.com',
+  email: 'jihee7772@naver.com',
   phone: '',
   linkedin: '',
   github: '',
@@ -283,8 +283,9 @@ export const initialSiteSettings: LocalSiteSettings = {
   hero_subtitle_en: 'I think user experience-first and grow services through data-driven decisions.',
   about_description_ko: '사용자의 니즈를 파악하고 비즈니스 목표와 조화시키는 것에 열정을 가진 기획자입니다.',
   about_description_en: 'A passionate planner who identifies user needs and harmonizes them with business objectives.',
-  contact_email: 'jihee.yoon@example.com',
+  contact_email: 'jihee7772@naver.com',
   social_linkedin: '',
   social_github: '',
 };
+
 

@@ -1,11 +1,28 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // 환경 변수에서 Supabase 설정 가져오기
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 // 클라이언트 사이드용 Supabase 클라이언트
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// 환경 변수가 있을 때만 생성 (없으면 null)
+let supabaseInstance: SupabaseClient | null = null;
+
+if (supabaseUrl && supabaseAnonKey && supabaseUrl !== 'https://your-project.supabase.co') {
+  try {
+    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey);
+  } catch (error) {
+    console.warn('Supabase 클라이언트 생성 실패:', error);
+  }
+}
+
+// Supabase 클라이언트 export (null일 수 있음)
+export const supabase = supabaseInstance;
+
+// Supabase 연결 여부 확인 함수
+export const isSupabaseAvailable = (): boolean => {
+  return supabaseInstance !== null;
+};
 
 // 데이터베이스 타입 정의
 export interface Profile {
@@ -87,6 +104,11 @@ export interface SiteSettings {
 export const api = {
   // 프로필 관련
   async getProfile(): Promise<Profile | null> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return null;
+    }
+    
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -100,6 +122,11 @@ export const api = {
   },
 
   async updateProfile(profile: Partial<Profile>): Promise<Profile | null> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return null;
+    }
+    
     const { data, error } = await supabase
       .from('profiles')
       .update({ ...profile, updated_at: new Date().toISOString() })
@@ -116,6 +143,11 @@ export const api = {
 
   // 프로젝트 관련
   async getProjects(includeHidden = false): Promise<Project[]> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return [];
+    }
+    
     let query = supabase
       .from('projects')
       .select('*')
@@ -135,6 +167,11 @@ export const api = {
   },
 
   async getProject(id: string): Promise<Project | null> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return null;
+    }
+    
     const { data, error } = await supabase
       .from('projects')
       .select('*')
@@ -149,6 +186,11 @@ export const api = {
   },
 
   async createProject(project: Omit<Project, 'id' | 'created_at' | 'updated_at'>): Promise<Project | null> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return null;
+    }
+    
     const { data, error } = await supabase
       .from('projects')
       .insert(project)
@@ -163,6 +205,11 @@ export const api = {
   },
 
   async updateProject(id: string, project: Partial<Project>): Promise<Project | null> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return null;
+    }
+    
     const { data, error } = await supabase
       .from('projects')
       .update({ ...project, updated_at: new Date().toISOString() })
@@ -178,6 +225,11 @@ export const api = {
   },
 
   async deleteProject(id: string): Promise<boolean> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return false;
+    }
+    
     const { error } = await supabase
       .from('projects')
       .delete()
@@ -191,6 +243,11 @@ export const api = {
   },
 
   async toggleProjectVisibility(id: string, isVisible: boolean): Promise<boolean> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return false;
+    }
+    
     const { error } = await supabase
       .from('projects')
       .update({ is_visible: isVisible, updated_at: new Date().toISOString() })
@@ -205,6 +262,11 @@ export const api = {
 
   // 스킬 관련
   async getSkills(): Promise<Skill[]> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return [];
+    }
+    
     const { data, error } = await supabase
       .from('skills')
       .select('*')
@@ -219,6 +281,11 @@ export const api = {
 
   // 경력 관련
   async getExperiences(): Promise<Experience[]> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return [];
+    }
+    
     const { data, error } = await supabase
       .from('experiences')
       .select('*')
@@ -233,6 +300,11 @@ export const api = {
 
   // 사이트 설정
   async getSiteSettings(): Promise<SiteSettings | null> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return null;
+    }
+    
     const { data, error } = await supabase
       .from('site_settings')
       .select('*')
@@ -247,6 +319,11 @@ export const api = {
 
   // 이미지 업로드
   async uploadImage(file: File, bucket: string = 'portfolio-images'): Promise<string | null> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return null;
+    }
+    
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
     
@@ -268,6 +345,11 @@ export const api = {
 
   // 이미지 삭제
   async deleteImage(url: string, bucket: string = 'portfolio-images'): Promise<boolean> {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return false;
+    }
+    
     const fileName = url.split('/').pop();
     if (!fileName) return false;
     
@@ -286,6 +368,11 @@ export const api = {
 // 인증 관련
 export const auth = {
   async signIn(email: string, password: string) {
+    if (!supabase) {
+      console.warn('Supabase가 설정되지 않았습니다.');
+      return null;
+    }
+    
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -299,6 +386,10 @@ export const auth = {
   },
 
   async signOut() {
+    if (!supabase) {
+      return false;
+    }
+    
     const { error } = await supabase.auth.signOut();
     if (error) {
       console.error('Error signing out:', error);
@@ -308,11 +399,19 @@ export const auth = {
   },
 
   async getSession() {
+    if (!supabase) {
+      return null;
+    }
+    
     const { data: { session } } = await supabase.auth.getSession();
     return session;
   },
 
   onAuthStateChange(callback: (event: string, session: any) => void) {
+    if (!supabase) {
+      return { data: { subscription: null }, unsubscribe: () => {} };
+    }
+    
     return supabase.auth.onAuthStateChange(callback);
   },
 };

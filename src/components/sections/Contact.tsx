@@ -33,7 +33,10 @@ export default function Contact() {
   };
 
   return (
-    <section id="contact" className="py-20 md:py-28 border-t border-[--border-color]">
+    <section id="contact" className="py-16 md:py-20 relative">
+      {/* 상단 장식 라인 */}
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[var(--accent-color)]/30 to-transparent" />
+      
       <div ref={ref} className="section-container text-center">
         <motion.div
           initial={{ opacity: 0, y: 30 }}

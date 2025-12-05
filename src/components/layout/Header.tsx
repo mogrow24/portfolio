@@ -4,8 +4,26 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, X } from 'lucide-react';
 import LanguageToggle from '../ui/LanguageToggle';
+import { useLocale } from '@/context/LocaleContext';
+
+const navContent = {
+  ko: {
+    about: '소개',
+    projects: '프로젝트',
+    experience: '경력',
+    interview: '인터뷰',
+  },
+  en: {
+    about: 'About',
+    projects: 'Projects',
+    experience: 'Experience',
+    interview: 'Interview',
+  },
+};
 
 export default function Header() {
+  const { locale } = useLocale();
+  const t = navContent[locale as keyof typeof navContent] ?? navContent.ko;
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -18,10 +36,10 @@ export default function Header() {
   }, []);
 
   const navItems = [
-    { href: '#about', label: 'About' },
-    { href: '#projects', label: 'Projects' },
-    { href: '#experience', label: 'Experience' },
-    { href: '#interview', label: 'Interview' },
+    { href: '#about', label: t.about },
+    { href: '#projects', label: t.projects },
+    { href: '#experience', label: t.experience },
+    { href: '#interview', label: t.interview },
   ];
 
   const scrollToSection = (href: string) => {
@@ -55,7 +73,7 @@ export default function Header() {
             className="text-lg md:text-xl font-extrabold tracking-tight"
             whileHover={{ scale: 1.05 }}
           >
-            YUN <span className="text-[--accent-color]">JI HEE</span>
+            YUN <span className="text-[--accent-color]">JIHEE</span>
           </motion.a>
 
           {/* 데스크탑 네비게이션 */}

@@ -53,6 +53,19 @@ export interface GalleryImage {
   caption_en: string;
 }
 
+// 프로젝트 카테고리 타입
+export type ProjectCategory = string; // 동적으로 관리되는 카테고리
+
+// 카테고리 데이터 타입
+export interface CategoryData {
+  id: string;
+  key: string; // 고유 키 (영문, 언더스코어)
+  label_ko: string;
+  label_en: string;
+  icon: string; // 아이콘 이름 (lucide)
+  order_index: number;
+}
+
 // 프로젝트 정보
 export interface ProjectData {
   id: string;
@@ -78,6 +91,7 @@ export interface ProjectData {
   gallery: GalleryImage[];
   is_visible: boolean;
   order_index: number;
+  category: ProjectCategory; // 카테고리: 전시, 웹/앱, 제안서
 }
 
 // 연락처 정보
@@ -96,30 +110,49 @@ export interface GuestMessage {
   name: string;
   company?: string;  // 회사명
   email?: string;
-  message: string;
+  message: string;  // 원본 메시지 (한글)
+  message_en?: string;  // 영문 번역 메시지
   allowNotification: boolean;
   isSecret: boolean;  // 비밀글 여부 (관리자만 볼 수 있음)
   createdAt: string;
   isRead: boolean;
   reply?: string;
+  reply_en?: string;  // 영문 번역 답변
   replyAt?: string;
   isReplyLocked: boolean;
+}
+
+// 번역 유틸리티 함수 (MyMemory API 사용 - 무료)
+export async function translateText(text: string, from: 'ko' | 'en', to: 'ko' | 'en'): Promise<string> {
+  try {
+    const response = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${from}|${to}`
+    );
+    const data = await response.json();
+    if (data.responseStatus === 200 && data.responseData?.translatedText) {
+      return data.responseData.translatedText;
+    }
+    return text; // 실패시 원본 반환
+  } catch (error) {
+    console.error('Translation error:', error);
+    return text; // 에러시 원본 반환
+  }
 }
 
 // ===== 기본 데이터 =====
 
 export const DEFAULT_PROFILE: ProfileData = {
   name_ko: '윤지희',
-  name_en: 'YUN JI HEE',
+  name_en: 'YUN JIHEE',
   phone: '010.5503.7807',
   email: 'jihee7772@naver.com',
   photo_url: '',
   subtitle_ko: 'Product Manager Portfolio',
   subtitle_en: 'Product Manager Portfolio',
-  title1_ko: '문제를 정의하고',
-  title1_en: 'Define Problems',
-  title2_ko: '실행을 설계합니다.',
-  title2_en: 'Design Execution.',
+  title1_ko: '방향을 제시하고,',
+  title1_en: 'I Set Direction,',
+  title2_ko: '끝까지 완수합니다.',
+  title2_en: 'Deliver Results.',
   desc_ko: '사용자 흐름을 구조화하고, 실행 가능한 전략으로 연결하는 4년차 실무형 PM입니다. 팀에 명확한 방향성을 제안하여 헤매지 않고, 일정 내에 움직일 수 있게 만듭니다. 복잡한 문제를 함께 정리해주고 마감까지 끌고 가는 것이 저의 역할입니다.',
   desc_en: "A 4th-year practical PM who structures user flows and connects them to executable strategies. I provide clear direction to teams so they don't wander and can move within schedule. My role is to organize complex problems together and carry them through to completion.",
   quote_ko: '"대체 불가한 인재가 되기 위해 매순간 지식과 실무능력을 축적하고 발산합니다."',
@@ -251,6 +284,7 @@ export const DEFAULT_PROJECTS: ProjectData[] = [
     ],
     is_visible: true,
     order_index: 0,
+    category: 'web_app',
   },
   {
     id: 'proj-2',
@@ -294,6 +328,7 @@ export const DEFAULT_PROJECTS: ProjectData[] = [
     ],
     is_visible: true,
     order_index: 1,
+    category: 'exhibition',
   },
   {
     id: 'proj-3',
@@ -338,6 +373,7 @@ export const DEFAULT_PROJECTS: ProjectData[] = [
     ],
     is_visible: true,
     order_index: 2,
+    category: 'exhibition',
   },
   {
     id: 'proj-4',
@@ -381,6 +417,7 @@ export const DEFAULT_PROJECTS: ProjectData[] = [
     ],
     is_visible: true,
     order_index: 3,
+    category: 'web_app',
   },
   {
     id: 'proj-5',
@@ -422,6 +459,7 @@ export const DEFAULT_PROJECTS: ProjectData[] = [
     ],
     is_visible: true,
     order_index: 4,
+    category: 'proposal',
   },
 ];
 
@@ -429,7 +467,7 @@ export const DEFAULT_CONTACT: ContactData = {
   title_ko: "Let's build something meaningful.",
   title_en: "Let's build something meaningful.",
   desc_ko: '팀의 방향성을 제시하고 마감까지 끌고 가는 사람, 윤지희입니다.',
-  desc_en: "I'm Jihee Yoon, someone who provides team direction and carries projects through to completion.",
+  desc_en: "I'm Jihee Yun, someone who provides team direction and carries projects through to completion.",
   cta_ko: '이메일 보내기',
   cta_en: 'Send Email',
 };
@@ -442,7 +480,15 @@ const STORAGE_KEYS = {
   PROJECTS: 'site_projects',
   CONTACT: 'site_contact',
   MESSAGES: 'guestbook_messages',
+  CATEGORIES: 'site_categories',
 };
+
+// 기본 카테고리 데이터
+export const DEFAULT_CATEGORIES: CategoryData[] = [
+  { id: 'cat-1', key: 'exhibition', label_ko: '전시', label_en: 'Exhibition', icon: 'Layers', order_index: 0 },
+  { id: 'cat-2', key: 'web_app', label_ko: '웹/앱', label_en: 'Web/App', icon: 'Monitor', order_index: 1 },
+  { id: 'cat-3', key: 'proposal', label_ko: '제안서', label_en: 'Proposal', icon: 'FileText', order_index: 2 },
+];
 
 // ===== 데이터 로드/저장 함수 =====
 
@@ -516,6 +562,18 @@ export function getMessages(): GuestMessage[] {
 export function saveMessages(data: GuestMessage[]): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(data));
+}
+
+// 카테고리
+export function getCategories(): CategoryData[] {
+  if (typeof window === 'undefined') return DEFAULT_CATEGORIES;
+  const saved = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
+  return saved ? JSON.parse(saved) : DEFAULT_CATEGORIES;
+}
+
+export function saveCategories(data: CategoryData[]): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(data));
 }
 
 // 데이터 초기화 (기본값으로 리셋)

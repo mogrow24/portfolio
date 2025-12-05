@@ -44,13 +44,19 @@ export default function About() {
     setCompetencies(getCompetencies());
   }, []);
 
-  const content = {
+  const content = locale === 'en' ? {
     subtitle: 'Core Competency',
     title: 'Why Work With Me?',
+  } : {
+    subtitle: '핵심 역량',
+    title: '저와 함께하면 좋은 이유',
   };
 
   return (
-    <section id="about" className="py-16 md:py-24 bg-[--bg-secondary]">
+    <section id="about" className="py-20 md:py-28 bg-[--bg-secondary] relative">
+      {/* 상단 장식 라인 */}
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[var(--accent-color)]/20 to-transparent" />
+      
       <div ref={ref} className="section-container">
         {/* 섹션 헤더 - 중앙 정렬 */}
         <motion.div

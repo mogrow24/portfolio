@@ -49,8 +49,21 @@ export default function AdminDashboard() {
   ];
 
   // 로그아웃
-  const handleLogout = () => {
-    sessionStorage.removeItem('admin_authenticated');
+  const handleLogout = async () => {
+    const token = localStorage.getItem('admin_auth_token');
+    if (token) {
+      try {
+        await fetch('/api/auth', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+      } catch {
+        // 무시
+      }
+    }
+    localStorage.removeItem('admin_auth_token');
+    localStorage.removeItem('admin_auth_time');
     router.push('/');
   };
 
@@ -192,12 +205,13 @@ function SettingsTab({ onReset }: { onReset: () => void }) {
       
       <div className="glass-card rounded-xl p-6 max-w-2xl space-y-6">
         <div>
-          <h3 className="font-semibold text-white mb-2">관리자 비밀 코드</h3>
+          <h3 className="font-semibold text-white mb-2">관리자 인증</h3>
           <p className="text-sm text-[--text-secondary] mb-2">
-            현재 비밀 코드: <code className="bg-[--bg-tertiary] px-2 py-1 rounded">7807</code>
+            비밀 코드는 서버에서 안전하게 관리됩니다.
           </p>
           <p className="text-xs text-[--text-secondary]">
-            비밀 코드를 변경하려면 <code>SecretAccess.tsx</code> 파일을 수정하세요.
+            비밀 코드를 변경하려면 <code className="bg-[--bg-tertiary] px-1 rounded">.env.local</code> 파일에서{' '}
+            <code className="bg-[--bg-tertiary] px-1 rounded">ADMIN_SECRET_CODE</code> 값을 수정하세요.
           </p>
         </div>
         

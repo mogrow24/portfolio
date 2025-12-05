@@ -86,3 +86,4 @@ export interface LocalSiteSettings {
 // 탭 타입
 export type TabType = 'projects' | 'profile' | 'experience' | 'settings';
 
+

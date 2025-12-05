@@ -14,7 +14,7 @@
     "contact": "연락하기"
   },
   "about": {
-    "title": "About Me",
+    "title": "소개",
     "subtitle": "저를 소개합니다",
     "description": "사용자의 니즈를 파악하고 비즈니스 목표와 조화시키는 것에 열정을 가진 기획자입니다.",
     "strengths": {
@@ -38,23 +38,23 @@
     }
   },
   "projects": {
-    "title": "Projects",
+    "title": "프로젝트",
     "subtitle": "진행한 프로젝트들",
     "viewMore": "자세히 보기",
     "role": "담당 역할",
     "period": "기간"
   },
   "experience": {
-    "title": "Experience",
+    "title": "경력",
     "subtitle": "경력 사항",
     "present": "현재"
   },
   "skills": {
-    "title": "Skills",
+    "title": "스킬",
     "subtitle": "보유 스킬"
   },
   "contact": {
-    "title": "Contact",
+    "title": "연락처",
     "subtitle": "연락처",
     "description": "새로운 기회나 협업에 대해 이야기하고 싶으시다면 언제든 연락 주세요.",
     "email": "이메일",

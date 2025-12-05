@@ -188,7 +188,7 @@ VALUES (
   'PM · Service Content Planner',
   '사용자의 니즈를 파악하고 비즈니스 목표와 조화시키는 것에 열정을 가진 기획자입니다. 복잡한 문제를 단순하게 풀어내고, 팀과의 원활한 커뮤니케이션을 통해 프로젝트를 성공적으로 이끌어갑니다.',
   'A passionate planner who identifies user needs and harmonizes them with business objectives. I simplify complex problems and lead projects to success through smooth communication with teams.',
-  'jihee.yoon@example.com'
+  'jihee7772@naver.com'
 ) ON CONFLICT DO NOTHING;
 
 -- 사이트 설정 초기 데이터
@@ -286,4 +286,5 @@ VALUES
 ('데이터 분석', 'Data Analysis', 'Excel/Sheets', 5, 6),
 ('협업', 'Collaboration', 'Slack', 5, 7),
 ('협업', 'Collaboration', 'Confluence', 4, 8);
+
 

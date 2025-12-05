@@ -2,24 +2,40 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Save, Plus, Edit3, Trash2, X, Eye, EyeOff, FolderOpen, GripVertical, ChevronDown, ChevronUp, Languages, Loader2, Image as ImageIcon } from 'lucide-react';
-import { getProjects, saveProjects, type ProjectData, type GalleryImage } from '@/lib/siteData';
+import { 
+  Save, Plus, Edit3, Trash2, X, Eye, EyeOff, FolderOpen, GripVertical, ChevronDown, ChevronUp, 
+  Languages, Loader2, Image as ImageIcon, Layers, Monitor, FileText, Sparkles, Tag
+} from 'lucide-react';
+import { getProjects, saveProjects, getCategories, saveCategories, type ProjectData, type GalleryImage, type CategoryData, DEFAULT_CATEGORIES } from '@/lib/siteData';
 import { translateKoToEn, translateArrayKoToEn } from '@/lib/translate';
 import ImageUploader from './ImageUploader';
 
+// 아이콘 맵핑
+const iconMap: { [key: string]: React.ComponentType<{ className?: string }> } = {
+  Layers,
+  Monitor,
+  FileText,
+  Sparkles,
+  Tag,
+};
+
 export default function ProjectsTab() {
   const [projects, setProjects] = useState<ProjectData[]>([]);
+  const [categories, setCategories] = useState<CategoryData[]>([]);
   const [saving, setSaving] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
 
   useEffect(() => {
     setProjects(getProjects().sort((a, b) => a.order_index - b.order_index));
+    setCategories(getCategories().sort((a, b) => a.order_index - b.order_index));
   }, []);
 
   const handleSave = () => {
     setSaving(true);
     saveProjects(projects);
+    saveCategories(categories);
     setTimeout(() => setSaving(false), 1000);
   };
 
@@ -48,6 +64,7 @@ export default function ProjectsTab() {
       gallery: [],
       is_visible: true,
       order_index: projects.length,
+      category: categories[0]?.key || 'exhibition',
     };
     setEditingProject(newProject);
     setIsModalOpen(true);
@@ -90,11 +107,60 @@ export default function ProjectsTab() {
     setEditingProject(null);
   };
 
+  // 카테고리 관리 함수
+  const handleAddCategory = () => {
+    const newCategory: CategoryData = {
+      id: `cat-${Date.now()}`,
+      key: `category_${Date.now()}`,
+      label_ko: '새 카테고리',
+      label_en: 'New Category',
+      icon: 'Tag',
+      order_index: categories.length,
+    };
+    setCategories([...categories, newCategory]);
+  };
+
+  const handleUpdateCategory = (id: string, field: keyof CategoryData, value: string | number) => {
+    setCategories(categories.map(cat => cat.id === id ? { ...cat, [field]: value } : cat));
+  };
+
+  const handleDeleteCategory = (id: string) => {
+    const category = categories.find(c => c.id === id);
+    if (!category) return;
+    
+    // 해당 카테고리를 사용하는 프로젝트가 있는지 확인
+    const projectsWithCategory = projects.filter(p => p.category === category.key);
+    if (projectsWithCategory.length > 0) {
+      alert(`이 카테고리를 사용하는 프로젝트가 ${projectsWithCategory.length}개 있습니다. 먼저 프로젝트의 카테고리를 변경해주세요.`);
+      return;
+    }
+    
+    if (!confirm('정말 삭제하시겠습니까?')) return;
+    setCategories(categories.filter(c => c.id !== id));
+  };
+
+  // 카테고리 라벨 가져오기
+  const getCategoryLabel = (categoryKey: string) => {
+    const cat = categories.find(c => c.key === categoryKey);
+    return cat?.label_ko || categoryKey;
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-white">프로젝트 관리</h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowCategoryManager(!showCategoryManager)}
+            className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
+              showCategoryManager ? 'bg-[--accent-color]/20 text-[--accent-color]' : 'bg-[--bg-tertiary] text-white hover:bg-[--accent-color]/10'
+            }`}
+          >
+            <Tag className="w-4 h-4" />
+            카테고리 관리
+          </motion.button>
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -117,6 +183,92 @@ export default function ProjectsTab() {
         </div>
       </div>
 
+      {/* 카테고리 관리 섹션 */}
+      <AnimatePresence>
+        {showCategoryManager && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="glass-card rounded-xl p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <Tag className="w-5 h-5 text-[--accent-color]" />
+                  카테고리 관리
+                </h3>
+                <button
+                  onClick={handleAddCategory}
+                  className="px-3 py-1.5 rounded-lg bg-[--accent-color]/20 text-[--accent-color] text-sm flex items-center gap-1 hover:bg-[--accent-color]/30"
+                >
+                  <Plus className="w-3 h-3" />
+                  추가
+                </button>
+              </div>
+              
+              <div className="space-y-3">
+                {categories.map((category) => {
+                  const IconComponent = iconMap[category.icon] || Tag;
+                  return (
+                    <div key={category.id} className="flex items-center gap-3 p-3 rounded-lg bg-[--bg-tertiary]">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-[--accent-color]/20 flex items-center justify-center">
+                        <IconComponent className="w-4 h-4 text-[--accent-color]" />
+                      </div>
+                      <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <input
+                          type="text"
+                          value={category.key}
+                          onChange={(e) => handleUpdateCategory(category.id, 'key', e.target.value.toLowerCase().replace(/\s/g, '_'))}
+                          placeholder="키 (영문)"
+                          className="px-3 py-1.5 rounded-lg bg-[--bg-primary] border border-[--border-color] text-white text-sm focus:outline-none focus:border-[--accent-color]"
+                        />
+                        <input
+                          type="text"
+                          value={category.label_ko}
+                          onChange={(e) => handleUpdateCategory(category.id, 'label_ko', e.target.value)}
+                          placeholder="한글 라벨"
+                          className="px-3 py-1.5 rounded-lg bg-[--bg-primary] border border-[--border-color] text-white text-sm focus:outline-none focus:border-[--accent-color]"
+                        />
+                        <input
+                          type="text"
+                          value={category.label_en}
+                          onChange={(e) => handleUpdateCategory(category.id, 'label_en', e.target.value)}
+                          placeholder="English Label"
+                          className="px-3 py-1.5 rounded-lg bg-[--bg-primary] border border-[--border-color] text-white text-sm focus:outline-none focus:border-[--accent-color]"
+                        />
+                      </div>
+                      <select
+                        value={category.icon}
+                        onChange={(e) => handleUpdateCategory(category.id, 'icon', e.target.value)}
+                        className="px-3 py-1.5 rounded-lg bg-[--bg-primary] border border-[--border-color] text-white text-sm focus:outline-none focus:border-[--accent-color]"
+                      >
+                        <option value="Layers">Layers</option>
+                        <option value="Monitor">Monitor</option>
+                        <option value="FileText">FileText</option>
+                        <option value="Sparkles">Sparkles</option>
+                        <option value="Tag">Tag</option>
+                      </select>
+                      <button
+                        onClick={() => handleDeleteCategory(category.id)}
+                        className="p-2 rounded-lg text-[--text-secondary] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              <p className="text-xs text-[--text-secondary]">
+                * 카테고리의 '키'는 영문 소문자와 언더스코어(_)만 사용할 수 있습니다.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 프로젝트 목록 */}
       <div className="space-y-4">
         {projects.map((project, index) => (
           <motion.div
@@ -138,10 +290,15 @@ export default function ProjectsTab() {
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <h3 className="font-semibold text-white truncate">{project.title_ko || '(제목 없음)'}</h3>
                   {!project.is_visible && (
                     <span className="px-2 py-0.5 rounded text-xs bg-[--bg-tertiary] text-[--text-secondary]">숨김</span>
+                  )}
+                  {project.category && (
+                    <span className="px-2 py-0.5 rounded text-xs bg-[--accent-color]/20 text-[--accent-color]">
+                      {getCategoryLabel(project.category)}
+                    </span>
                   )}
                 </div>
                 <p className="text-sm text-[--text-secondary] line-clamp-2 mb-2">{project.project_ko}</p>
@@ -190,9 +347,11 @@ export default function ProjectsTab() {
         {isModalOpen && editingProject && (
           <ProjectEditModal
             project={editingProject}
+            categories={categories}
             onClose={() => { setIsModalOpen(false); setEditingProject(null); }}
             onSave={handleSaveProject}
             onChange={setEditingProject}
+            onAddCategory={(newCat) => setCategories([...categories, newCat])}
           />
         )}
       </AnimatePresence>
@@ -202,12 +361,131 @@ export default function ProjectsTab() {
 
 interface ProjectEditModalProps {
   project: ProjectData;
+  categories: CategoryData[];
   onClose: () => void;
   onSave: () => void;
   onChange: (project: ProjectData) => void;
+  onAddCategory: (category: CategoryData) => void;
 }
 
-function ProjectEditModal({ project, onClose, onSave, onChange }: ProjectEditModalProps) {
+// 카테고리 선택 + 추가 컴포넌트
+function CategorySelector({ 
+  value, 
+  categories, 
+  onChange, 
+  onAddCategory 
+}: { 
+  value: string; 
+  categories: CategoryData[]; 
+  onChange: (value: string) => void;
+  onAddCategory: (cat: CategoryData) => void;
+}) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [newCat, setNewCat] = useState({ key: '', label_ko: '', label_en: '' });
+
+  const handleAddNew = () => {
+    if (!newCat.key.trim() || !newCat.label_ko.trim()) return;
+    
+    const category: CategoryData = {
+      id: `cat-${Date.now()}`,
+      key: newCat.key.toLowerCase().replace(/\s/g, '_'),
+      label_ko: newCat.label_ko,
+      label_en: newCat.label_en || newCat.label_ko,
+      icon: 'Tag',
+      order_index: categories.length,
+    };
+    
+    onAddCategory(category);
+    onChange(category.key);
+    setNewCat({ key: '', label_ko: '', label_en: '' });
+    setIsAdding(false);
+  };
+
+  return (
+    <div>
+      <label className="block text-sm text-[--text-secondary] mb-1">카테고리</label>
+      <div className="flex gap-2">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="flex-1 px-4 py-2 rounded-lg bg-[--bg-tertiary] border border-[--border-color] text-white focus:outline-none focus:border-[--accent-color]"
+        >
+          <option value="">카테고리 선택</option>
+          {categories.map((cat) => (
+            <option key={cat.id} value={cat.key}>
+              {cat.label_ko} ({cat.label_en})
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setIsAdding(!isAdding)}
+          className={`px-3 py-2 rounded-lg flex items-center gap-1 text-sm transition-colors ${
+            isAdding ? 'bg-[--accent-color]/20 text-[--accent-color]' : 'bg-[--bg-tertiary] text-[--text-secondary] hover:text-[--accent-color]'
+          }`}
+        >
+          <Plus className="w-4 h-4" />
+          추가
+        </button>
+      </div>
+      
+      <AnimatePresence>
+        {isAdding && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mt-3 p-3 rounded-lg bg-[--bg-primary] border border-[--accent-color]/30 space-y-2"
+          >
+            <p className="text-xs text-[--accent-color] font-semibold">새 카테고리 추가</p>
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                type="text"
+                value={newCat.key}
+                onChange={(e) => setNewCat(prev => ({ ...prev, key: e.target.value.toLowerCase().replace(/\s/g, '_') }))}
+                placeholder="키 (영문)"
+                className="px-3 py-2 rounded-lg bg-[--bg-tertiary] border border-[--border-color] text-white text-sm focus:outline-none focus:border-[--accent-color]"
+              />
+              <input
+                type="text"
+                value={newCat.label_ko}
+                onChange={(e) => setNewCat(prev => ({ ...prev, label_ko: e.target.value }))}
+                placeholder="한글 라벨"
+                className="px-3 py-2 rounded-lg bg-[--bg-tertiary] border border-[--border-color] text-white text-sm focus:outline-none focus:border-[--accent-color]"
+              />
+              <input
+                type="text"
+                value={newCat.label_en}
+                onChange={(e) => setNewCat(prev => ({ ...prev, label_en: e.target.value }))}
+                placeholder="English"
+                className="px-3 py-2 rounded-lg bg-[--bg-tertiary] border border-[--border-color] text-white text-sm focus:outline-none focus:border-[--accent-color]"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setIsAdding(false)}
+                className="flex-1 px-3 py-1.5 rounded-lg text-xs text-[--text-secondary] hover:bg-[--bg-tertiary]"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={handleAddNew}
+                disabled={!newCat.key.trim() || !newCat.label_ko.trim()}
+                className="flex-1 px-3 py-1.5 rounded-lg text-xs bg-[--accent-color] text-black font-semibold disabled:opacity-50"
+              >
+                추가하기
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function ProjectEditModal({ project, categories, onClose, onSave, onChange, onAddCategory }: ProjectEditModalProps) {
   const [expandedSections, setExpandedSections] = useState({
     basic: true,
     description: false,
@@ -355,6 +633,18 @@ function ProjectEditModal({ project, onClose, onSave, onChange }: ProjectEditMod
                     <input type="text" value={project.title_en} onChange={(e) => onChange({ ...project, title_en: e.target.value })} className="w-full px-4 py-2 rounded-lg bg-[--bg-tertiary] border border-[--border-color] text-white focus:outline-none focus:border-[--accent-color]" />
                   </div>
                 </div>
+                
+                {/* 카테고리 선택 */}
+                <CategorySelector
+                  value={project.category || ''}
+                  categories={categories}
+                  onChange={(value) => onChange({ ...project, category: value })}
+                  onAddCategory={(newCat) => {
+                    // 새 카테고리 추가
+                    onAddCategory(newCat);
+                  }}
+                />
+                
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-[--text-secondary] mb-1">성과 (한글)</label>

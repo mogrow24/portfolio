@@ -1,5 +1,6 @@
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
+import PageWrapper from '@/components/layout/PageWrapper';
 import Hero from '@/components/sections/Hero';
 import About from '@/components/sections/About';
 import Projects from '@/components/sections/Projects';
@@ -10,16 +11,18 @@ import Contact from '@/components/sections/Contact';
 
 export default function Home() {
   return (
-    <main className="relative">
-      <Header />
-      <Hero />
-      <About />
-      <Projects />
-      <Experience />
-      <Interview />
-      <GuestBook />
-      <Contact />
-      <Footer />
-    </main>
+    <PageWrapper>
+      <main className="relative">
+        <Header />
+        <Hero />
+        <About />
+        <Projects />
+        <Experience />
+        <Interview />
+        <GuestBook />
+        <Contact />
+        <Footer />
+      </main>
+    </PageWrapper>
   );
 }

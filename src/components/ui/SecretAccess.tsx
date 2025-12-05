@@ -3,57 +3,101 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
-import { X, Lock, Sparkles } from 'lucide-react';
-
-// 비밀 코드 설정 (원하시면 변경하세요)
-const SECRET_CODE = '7807';
+import { X, Lock, Sparkles, Loader2 } from 'lucide-react';
+import { useLocale } from '@/context/LocaleContext';
 
 interface SecretAccessProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+const content = {
+  ko: {
+    title: '관리자 접근',
+    desc: '4자리 코드를 입력하세요',
+    confirm: '확인',
+    accessGranted: '✓ 접근 허용됨',
+    verifying: '확인 중...',
+  },
+  en: {
+    title: 'Admin Access',
+    desc: 'Enter 4-digit code',
+    confirm: 'Confirm',
+    accessGranted: '✓ Access Granted',
+    verifying: 'Verifying...',
+  },
+};
+
 export default function SecretAccess({ isOpen, onClose }: SecretAccessProps) {
   const router = useRouter();
+  const { locale } = useLocale();
+  const t = content[locale as keyof typeof content] ?? content.ko;
+  
   const [code, setCode] = useState('');
   const [error, setError] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setCode('');
       setError(false);
       setSuccess(false);
+      setLoading(false);
     }
   }, [isOpen]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (code === SECRET_CODE) {
-      setSuccess(true);
-      // 인증 상태를 로컬 스토리지에 저장
-      localStorage.setItem('admin_auth', 'true');
-      localStorage.setItem('admin_auth_time', Date.now().toString());
+    if (loading || code.length !== 4) return;
+    
+    setLoading(true);
+    setError(false);
+    
+    try {
+      // 서버 사이드 API를 통해 인증
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
       
-      setTimeout(() => {
-        router.push('/admin/dashboard');
-      }, 800);
-    } else {
+      const data = await response.json();
+      
+      if (data.success && data.token) {
+        setSuccess(true);
+        // 토큰을 로컬 스토리지에 저장 (비밀번호가 아닌 인증 토큰)
+        localStorage.setItem('admin_auth_token', data.token);
+        localStorage.setItem('admin_auth_time', Date.now().toString());
+        
+        setTimeout(() => {
+          router.push('/admin/dashboard');
+        }, 800);
+      } else {
+        setError(true);
+        setCode('');
+        setTimeout(() => setError(false), 1500);
+      }
+    } catch {
       setError(true);
       setCode('');
       setTimeout(() => setError(false), 1500);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleKeyPress = (num: string) => {
-    if (code.length < 4) {
+    if (code.length < 4 && !loading) {
       setCode(prev => prev + num);
     }
   };
 
   const handleDelete = () => {
-    setCode(prev => prev.slice(0, -1));
+    if (!loading) {
+      setCode(prev => prev.slice(0, -1));
+    }
   };
 
   return (
@@ -86,12 +130,14 @@ export default function SecretAccess({ isOpen, onClose }: SecretAccessProps) {
               <div className={`inline-flex items-center justify-center w-14 h-14 rounded-xl mb-4 transition-colors ${success ? 'bg-green-500' : 'bg-[--accent-color]/20'}`}>
                 {success ? (
                   <Sparkles className="w-7 h-7 text-white" />
+                ) : loading ? (
+                  <Loader2 className="w-7 h-7 text-[--accent-color] animate-spin" />
                 ) : (
                   <Lock className={`w-7 h-7 ${error ? 'text-red-400' : 'text-[--accent-color]'}`} />
                 )}
               </div>
-              <h3 className="text-lg font-bold text-white mb-1">Admin Access</h3>
-              <p className="text-[--text-secondary] text-sm">Enter 4-digit code</p>
+              <h3 className="text-lg font-bold text-white mb-1">{t.title}</h3>
+              <p className="text-[--text-secondary] text-sm">{t.desc}</p>
             </div>
 
             {/* 코드 입력 표시 */}
@@ -122,12 +168,12 @@ export default function SecretAccess({ isOpen, onClose }: SecretAccessProps) {
                 {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'].map((key) => (
                   <button
                     key={key}
-                    type={key === '' ? 'button' : key === 'del' ? 'button' : 'button'}
+                    type="button"
                     onClick={() => {
                       if (key === 'del') handleDelete();
                       else if (key !== '') handleKeyPress(key);
                     }}
-                    disabled={key === '' || success}
+                    disabled={key === '' || success || loading}
                     className={`h-14 rounded-xl font-bold text-lg transition-all ${
                       key === ''
                         ? 'cursor-default'
@@ -144,18 +190,19 @@ export default function SecretAccess({ isOpen, onClose }: SecretAccessProps) {
               {/* 확인 버튼 */}
               <motion.button
                 type="submit"
-                disabled={code.length !== 4 || success}
-                whileHover={{ scale: code.length === 4 ? 1.02 : 1 }}
-                whileTap={{ scale: code.length === 4 ? 0.98 : 1 }}
-                className={`w-full py-3.5 rounded-xl font-bold transition-all ${
+                disabled={code.length !== 4 || success || loading}
+                whileHover={{ scale: code.length === 4 && !loading ? 1.02 : 1 }}
+                whileTap={{ scale: code.length === 4 && !loading ? 0.98 : 1 }}
+                className={`w-full py-3.5 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
                   success
                     ? 'bg-green-500 text-white'
-                    : code.length === 4
+                    : code.length === 4 && !loading
                     ? 'bg-[--accent-color] text-black hover:shadow-[0_0_20px_rgba(0,223,192,0.3)]'
                     : 'bg-[--bg-tertiary] text-[--text-secondary] cursor-not-allowed'
                 }`}
               >
-                {success ? '✓ Access Granted' : 'Confirm'}
+                {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                {success ? t.accessGranted : loading ? t.verifying : t.confirm}
               </motion.button>
             </form>
           </motion.div>
@@ -164,4 +211,3 @@ export default function SecretAccess({ isOpen, onClose }: SecretAccessProps) {
     </AnimatePresence>
   );
 }
-

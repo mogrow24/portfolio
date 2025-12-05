@@ -82,3 +82,4 @@ export function containsKorean(text: string): boolean {
   return koreanRegex.test(text);
 }
 
+
