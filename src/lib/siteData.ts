@@ -104,6 +104,16 @@ export interface ContactData {
   cta_en: string;
 }
 
+// 인터뷰 Q&A
+export interface InterviewData {
+  id: string;
+  question_ko: string;
+  question_en: string;
+  answer_ko: string;
+  answer_en: string;
+  order_index: number;
+}
+
 // 게스트 메시지
 export interface GuestMessage {
   id: string;
@@ -464,13 +474,49 @@ export const DEFAULT_PROJECTS: ProjectData[] = [
 ];
 
 export const DEFAULT_CONTACT: ContactData = {
-  title_ko: "Let's build something meaningful.",
-  title_en: "Let's build something meaningful.",
-  desc_ko: '팀의 방향성을 제시하고 마감까지 끌고 가는 사람, 윤지희입니다.',
-  desc_en: "I'm Jihee Yun, someone who provides team direction and carries projects through to completion.",
+  title_ko: "함께 일해요",
+  title_en: "Let's Work Together",
+  desc_ko: '새로운 기회에 대해 이야기 나누고 싶으시다면 언제든 연락 주세요.',
+  desc_en: "Feel free to reach out if you'd like to discuss new opportunities.",
   cta_ko: '이메일 보내기',
   cta_en: 'Send Email',
 };
+
+// PPT 기반 인터뷰 데이터
+export const DEFAULT_INTERVIEWS: InterviewData[] = [
+  {
+    id: 'int-1',
+    question_ko: 'Q. 왜 기획, PM 일을 선택하게 되었나요?',
+    question_en: 'Q. Why did you choose planning and PM work?',
+    answer_ko: '처음에는 게임 프로그래머를 꿈꿨지만, 공모전을 계기로 기획에 흥미를 느끼게 됐습니다.\n\n아이디어를 직접 실현해보는 과정이 재미있었고, 이후 실무에서 자연스럽게 PM 역할까지 맡게 되었습니다.\n\n어린 나이에 PM을 맡아 우려도 있었지만, 사용자·클라이언트·팀원 모두의 관점을 고려하며 소통했고 점차 인정받을 수 있었습니다.\n\n지금은 기획, 디자인, 개발을 아우르며 팀의 방향을 하나로 모으는 PM의 역할에서 큰 보람을 느낍니다.',
+    answer_en: 'I initially dreamed of becoming a game programmer, but I became interested in planning through a competition.\n\nThe process of realizing ideas was fun, and I naturally took on PM roles in practice.\n\nAlthough there were concerns about being a young PM, I communicated while considering the perspectives of users, clients, and team members, and gradually gained recognition.\n\nNow I find great fulfillment in the role of PM, bringing together planning, design, and development to unify the team\'s direction.',
+    order_index: 0,
+  },
+  {
+    id: 'int-2',
+    question_ko: 'Q. 어떤 순간에 가장 몰입하나요?',
+    question_en: 'Q. When do you feel most immersed?',
+    answer_ko: '단순할 수도 있겠지만, 일할 때 가장 몰입합니다. 일을 가장 좋아합니다.\n\n취미가 무엇이냐고 묻는 질문에 언제나 일이라고만 답할 수 있었습니다.\n\n주말이 지루해서 사이드 프로젝트를 하고, 네트워킹에 나가면서 개인 역량을 높이는 것에 몰입합니다.\n\n물론 언제나 일이 즐겁기만 한 것은 아니지만, 여전히 일을 할 때면 설렙니다. 일은 저에게 몰입 그 자체입니다.',
+    answer_en: 'It might sound simple, but I\'m most immersed when working. I love work the most.\n\nWhenever asked about my hobbies, I could only answer with work.\n\nI do side projects on weekends because I get bored, and I immerse myself in improving my capabilities through networking.\n\nOf course, work isn\'t always enjoyable, but I still get excited when working. Work is immersion itself for me.',
+    order_index: 1,
+  },
+  {
+    id: 'int-3',
+    question_ko: 'Q. PM으로서 가장 중요하게 생각하는 건 뭔가요?',
+    question_en: 'Q. What do you consider most important as a PM?',
+    answer_ko: '사람과 사람이 일을 하는 곳에서 중요한 건 소통이라고 생각합니다.\n\n서로 말을 안 하면 아무것도 모르듯, 감정이 상하면 더이상 보기 싫은 것이 인간관계이듯 일도 동일하다고 생각합니다.\n\n하나의 이야기를 전달하고, 서로의 입장을 고려하여 조율하고, 같은 방향과 목적을 위해 달리는 팀이라고 느낄 수 있도록 계속된 소통과 협의, 확인하며 나아갑니다.\n\nPM은 프로젝트에 참여하는 팀원들이 하나로 나아갈 수 있도록 하는 것, 그 첫 시작엔 소통이 있다고 생각합니다.',
+    answer_en: 'I believe communication is the most important thing when people work together.\n\nJust as you don\'t know anything if you don\'t talk to each other, and just as you don\'t want to see someone anymore when feelings are hurt, work is the same.\n\nI move forward through continuous communication, coordination, and confirmation - conveying a single story, coordinating while considering each other\'s positions, and making the team feel like they\'re running toward the same direction and purpose.\n\nI believe communication is the first step for a PM to help team members move forward as one.',
+    order_index: 2,
+  },
+  {
+    id: 'int-4',
+    question_ko: 'Q. 앞으로 어떤 PM이 되고 싶나요?',
+    question_en: 'Q. What kind of PM do you want to become?',
+    answer_ko: '업계에서 정말 유능한 PM이 되고 싶습니다.\n\n누구와 함께해도 소통이 잘 되고, 어떤 프로젝트든 함께하면 해낼 수 있을 것 같은 사람.\n\n리스크는 사전에 파악하고, 변수가 생겨도 빠르게 대응하며, 그 안에서 사람들을 이해하고 조율할 수 있는 PM이 되고 싶습니다.\n\nPM은 혼자서 성과를 낼 수 있는 직군도 아니고, 혼자만 잘났다고 할 수 있는 직군도 아니기에 모두를 아우르고 이해하며 나아갈 수 있는 그런 PM이 되겠습니다.',
+    answer_en: 'I want to become a truly competent PM in the industry.\n\nSomeone who communicates well with anyone, and makes people feel like any project can be accomplished together.\n\nI want to become a PM who identifies risks in advance, responds quickly to variables, and can understand and coordinate people within that context.\n\nSince PM is not a role where you can achieve results alone or claim to be the only one who\'s capable, I will become a PM who encompasses and understands everyone while moving forward.',
+    order_index: 3,
+  },
+];
 
 // ===== 로컬 스토리지 키 =====
 const STORAGE_KEYS = {
@@ -481,6 +527,7 @@ const STORAGE_KEYS = {
   CONTACT: 'site_contact',
   MESSAGES: 'guestbook_messages',
   CATEGORIES: 'site_categories',
+  INTERVIEWS: 'site_interviews',
 };
 
 // 기본 카테고리 데이터
@@ -576,6 +623,18 @@ export function saveCategories(data: CategoryData[]): void {
   localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(data));
 }
 
+// 인터뷰
+export function getInterviews(): InterviewData[] {
+  if (typeof window === 'undefined') return DEFAULT_INTERVIEWS;
+  const saved = localStorage.getItem(STORAGE_KEYS.INTERVIEWS);
+  return saved ? JSON.parse(saved) : DEFAULT_INTERVIEWS;
+}
+
+export function saveInterviews(data: InterviewData[]): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_KEYS.INTERVIEWS, JSON.stringify(data));
+}
+
 // 데이터 초기화 (기본값으로 리셋)
 export function resetAllData(): void {
   if (typeof window === 'undefined') return;
@@ -584,5 +643,6 @@ export function resetAllData(): void {
   localStorage.setItem(STORAGE_KEYS.EXPERIENCES, JSON.stringify(DEFAULT_EXPERIENCES));
   localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(DEFAULT_PROJECTS));
   localStorage.setItem(STORAGE_KEYS.CONTACT, JSON.stringify(DEFAULT_CONTACT));
+  localStorage.setItem(STORAGE_KEYS.INTERVIEWS, JSON.stringify(DEFAULT_INTERVIEWS));
 }
 

@@ -169,9 +169,9 @@ function generateEmailHTML(name: string, question: string, answer: string, isLoc
           <!-- CTA 버튼 -->
           <tr>
             <td style="padding: 0 30px 30px; text-align: center;">
-              <a href="${process.env.NEXT_PUBLIC_SITE_URL || 'https://your-portfolio.com'}#guest-book" 
+              <a href="${process.env.NEXT_PUBLIC_SITE_URL || 'https://portfoliojihee.vercel.app'}/#guest-book" 
                  style="display: inline-block; background-color: #00dfc0; color: #000; text-decoration: none; padding: 14px 32px; border-radius: 50px; font-weight: bold; font-size: 14px;">
-                포트폴리오에서 확인하기 →
+                사이트에서 확인하기 →
               </a>
             </td>
           </tr>

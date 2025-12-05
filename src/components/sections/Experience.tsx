@@ -19,8 +19,8 @@ export default function Experience() {
   }, []);
 
   const content = {
-    subtitle: locale === 'en' ? 'Work History' : '경력 사항',
-    title: locale === 'en' ? 'Experience' : '경력',
+    subtitle: 'Career',
+    title: locale === 'en' ? 'Work Experience' : '경력 사항',
   };
 
   return (

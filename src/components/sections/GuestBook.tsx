@@ -29,8 +29,8 @@ type FilterType = 'all' | 'answered' | 'pending';
 
 const content = {
   ko: {
-    subtitle: '방명록',
-    title: '궁금한 점을 물어보세요',
+    subtitle: 'Q&A',
+    title: '궁금한 점을 남겨주세요',
     desc: '이름과 이메일(선택)을 남겨주시면 직접 답변을 드리고, 이메일로 알림도 전송해드립니다.',
     nameLabel: '이름',
     namePlaceholder: '홍길동',
@@ -64,10 +64,11 @@ const content = {
     privateReplyLabel: '비공개 답변',
     privateBadge: '비공개',
     answeredBadge: '답변 완료',
+    cancel: '취소',
   },
   en: {
-    subtitle: 'Guest Book',
-    title: 'Ask me anything about service or collaboration.',
+    subtitle: 'Q&A',
+    title: 'Leave Your Questions',
     desc: 'Leave your name and email (optional) to receive direct answers and email notifications.',
     nameLabel: 'Name',
     namePlaceholder: 'John Doe',
@@ -101,6 +102,7 @@ const content = {
     privateReplyLabel: 'Private Reply',
     privateBadge: 'Private',
     answeredBadge: 'Answered',
+    cancel: 'Cancel',
   },
 };
 
@@ -308,7 +310,7 @@ function QuestionModal({ isOpen, onClose, onSubmit, locale }: {
                   onClick={onClose}
                   className="flex-1 px-4 py-3 rounded-xl border border-[--border-color] text-[--text-secondary] hover:bg-[--bg-tertiary] transition-colors"
                 >
-                  취소
+                  {t.cancel}
                 </button>
                 <motion.button
                   type="submit"

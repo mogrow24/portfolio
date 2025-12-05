@@ -14,6 +14,7 @@ import {
   LogOut,
   Target,
   RefreshCw,
+  MessageCircle,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { getMessages, resetAllData } from '@/lib/siteData';
@@ -24,19 +25,80 @@ import CompetenciesTab from '@/components/admin/CompetenciesTab';
 import ExperienceTab from '@/components/admin/ExperienceTab';
 import ProjectsTab from '@/components/admin/ProjectsTab';
 import MessagesTab from '@/components/admin/MessagesTab';
+import InterviewsTab from '@/components/admin/InterviewsTab';
 
-type TabId = 'projects' | 'messages' | 'profile' | 'competencies' | 'experience' | 'settings';
+type TabId = 'projects' | 'messages' | 'profile' | 'competencies' | 'experience' | 'interviews' | 'settings';
 
 export default function AdminDashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabId>('projects');
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // 인증 확인
+  useEffect(() => {
+    const verifyAuth = async () => {
+      const token = localStorage.getItem('admin_auth_token');
+      const authTime = localStorage.getItem('admin_auth_time');
+      
+      if (!token || !authTime) {
+        router.push('/');
+        return;
+      }
+      
+      const elapsed = Date.now() - parseInt(authTime);
+      // 24시간 초과 시 만료
+      if (elapsed >= 24 * 60 * 60 * 1000) {
+        localStorage.removeItem('admin_auth_token');
+        localStorage.removeItem('admin_auth_time');
+        router.push('/');
+        return;
+      }
+      
+      // 서버에서 토큰 유효성 검증
+      try {
+        const response = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'verify', token }),
+        });
+        
+        const data = await response.json();
+        
+        if (data.success && data.valid) {
+          setIsAuthenticated(true);
+          setIsLoading(false);
+          return;
+        }
+      } catch {
+        // 검증 실패
+      }
+      
+      // 인증 실패 시 메인으로
+      localStorage.removeItem('admin_auth_token');
+      localStorage.removeItem('admin_auth_time');
+      router.push('/');
+    };
+
+    verifyAuth();
+  }, [router]);
 
   // 읽지 않은 메시지 수 로드
   useEffect(() => {
+    if (!isAuthenticated) return;
     const messages = getMessages();
     setUnreadCount(messages.filter((m) => !m.isRead).length);
-  }, []);
+  }, [isAuthenticated]);
+
+  // 로딩 중이거나 인증 안됐으면 로딩 화면
+  if (isLoading || !isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[--bg-primary]">
+        <div className="w-8 h-8 border-2 border-[--accent-color]/30 border-t-[--accent-color] rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   // 탭 정의
   const tabs = [
@@ -45,6 +107,7 @@ export default function AdminDashboard() {
     { id: 'profile' as TabId, label: '프로필', icon: User, badge: 0 },
     { id: 'competencies' as TabId, label: '역량', icon: Target, badge: 0 },
     { id: 'experience' as TabId, label: '경력', icon: Briefcase, badge: 0 },
+    { id: 'interviews' as TabId, label: '인터뷰', icon: MessageCircle, badge: 0 },
     { id: 'settings' as TabId, label: '설정', icon: Settings, badge: 0 },
   ];
 
@@ -87,6 +150,8 @@ export default function AdminDashboard() {
         return <CompetenciesTab />;
       case 'experience':
         return <ExperienceTab />;
+      case 'interviews':
+        return <InterviewsTab />;
       case 'settings':
         return <SettingsTab onReset={handleResetData} />;
       default:

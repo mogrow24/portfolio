@@ -38,8 +38,8 @@
     }
   },
   "projects": {
-    "title": "Projects",
-    "subtitle": "Featured Work",
+    "title": "Featured Projects",
+    "subtitle": "Projects",
     "viewMore": "View Details",
     "role": "Role",
     "period": "Period"

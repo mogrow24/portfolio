@@ -38,8 +38,8 @@
     }
   },
   "projects": {
-    "title": "프로젝트",
-    "subtitle": "진행한 프로젝트들",
+    "title": "진행한 프로젝트",
+    "subtitle": "Projects",
     "viewMore": "자세히 보기",
     "role": "담당 역할",
     "period": "기간"

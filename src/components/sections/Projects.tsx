@@ -198,15 +198,15 @@ function GalleryPopup({ images, currentIndex, onClose, onPrev, onNext, locale }:
           <>
             <button
               onClick={(e) => { e.stopPropagation(); onPrev(); }}
-              className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-12 w-10 h-10 rounded-full bg-white/10 hover:bg-[--accent-color] hover:text-black flex items-center justify-center transition-all"
+              className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 w-10 h-10 md:w-12 md:h-12 rounded-full bg-black/70 hover:bg-[--accent-color] hover:text-black flex items-center justify-center transition-all backdrop-blur-sm border border-white/20"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="w-5 h-5 md:w-6 md:h-6" />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onNext(); }}
-              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-12 w-10 h-10 rounded-full bg-white/10 hover:bg-[--accent-color] hover:text-black flex items-center justify-center transition-all"
+              className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 w-10 h-10 md:w-12 md:h-12 rounded-full bg-black/70 hover:bg-[--accent-color] hover:text-black flex items-center justify-center transition-all backdrop-blur-sm border border-white/20"
             >
-              <ChevronRight className="w-5 h-5" />
+              <ChevronRight className="w-5 h-5 md:w-6 md:h-6" />
             </button>
           </>
         )}

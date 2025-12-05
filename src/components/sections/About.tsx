@@ -45,11 +45,11 @@ export default function About() {
   }, []);
 
   const content = locale === 'en' ? {
-    subtitle: 'Core Competency',
-    title: 'Why Work With Me?',
+    subtitle: 'Competency',
+    title: 'My Strengths',
   } : {
-    subtitle: '핵심 역량',
-    title: '저와 함께하면 좋은 이유',
+    subtitle: 'Competency',
+    title: '핵심 역량',
   };
 
   return (
