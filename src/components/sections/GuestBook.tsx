@@ -387,31 +387,58 @@ function QuestionCard({ message, locale, onToggleReply }: {
       {/* 답변 영역 - 간소화 */}
       {message.reply ? (
         <div 
-          onClick={() => !message.isSecret && !message.isReplyLocked && setIsExpanded(!isExpanded)}
           className={`rounded-lg p-3 ${
             message.isSecret || message.isReplyLocked
               ? 'bg-yellow-500/5 border border-yellow-500/10'
-              : 'bg-[--accent-color]/5 border border-[--accent-color]/10 cursor-pointer hover:bg-[--accent-color]/10'
-          } transition-colors`}
+              : 'bg-[--accent-color]/5 border border-[--accent-color]/10'
+          }`}
         >
-          <div className="flex items-center gap-2 mb-1">
-            <MessageSquare className={`w-3.5 h-3.5 ${message.isReplyLocked ? 'text-yellow-400' : 'text-[--accent-color]'}`} />
-            <span className="text-xs font-semibold text-white">A.</span>
-            {(message.isSecret || message.isReplyLocked) && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400">비공개</span>
-            )}
+          {/* 헤더 - 클릭 가능한 버튼 */}
+          <button
+            type="button"
+            onClick={() => {
+              if (!message.isSecret && !message.isReplyLocked) {
+                setIsExpanded(prev => !prev);
+              }
+            }}
+            disabled={message.isSecret || message.isReplyLocked}
+            className={`w-full flex items-center justify-between ${
+              !message.isSecret && !message.isReplyLocked ? 'cursor-pointer' : 'cursor-default'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <MessageSquare className={`w-3.5 h-3.5 ${message.isReplyLocked ? 'text-yellow-400' : 'text-[--accent-color]'}`} />
+              <span className="text-xs font-semibold text-white">A.</span>
+              {(message.isSecret || message.isReplyLocked) && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400">비공개</span>
+              )}
+            </div>
             {!message.isSecret && !message.isReplyLocked && (
-              <ChevronDown className={`w-3 h-3 text-[--text-secondary] ml-auto transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+              <div className="flex items-center gap-1 text-[--accent-color]">
+                <span className="text-[10px]">{isExpanded ? t.hideReply : t.showReply}</span>
+                <ChevronDown 
+                  className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} 
+                />
+              </div>
             )}
-          </div>
+          </button>
           
+          {/* 답변 내용 */}
           {(message.isSecret || message.isReplyLocked) ? (
-            <p className="text-xs text-yellow-400/60 italic">{t.lockedReply}</p>
+            <p className="text-xs text-yellow-400/60 italic mt-2">{t.lockedReply}</p>
           ) : (
-            <p className={`text-xs text-[--text-secondary] leading-relaxed ${isExpanded ? '' : 'line-clamp-2'}`}>
-              {/* locale에 따라 번역된 답변 또는 원본 표시 */}
-              {locale === 'en' && message.reply_en ? message.reply_en : message.reply}
-            </p>
+            <div
+              style={{
+                maxHeight: isExpanded ? '500px' : '0px',
+                opacity: isExpanded ? 1 : 0,
+                overflow: 'hidden',
+                transition: 'max-height 0.3s ease, opacity 0.2s ease',
+              }}
+            >
+              <p className="text-xs text-[--text-secondary] leading-relaxed mt-2 whitespace-pre-line">
+                {locale === 'en' && message.reply_en ? message.reply_en : message.reply}
+              </p>
+            </div>
           )}
         </div>
       ) : (
