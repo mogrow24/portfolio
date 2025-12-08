@@ -1,5 +1,7 @@
 // 사이트 콘텐츠 데이터 스토어
-// 로컬 스토리지 기반으로 모든 사이트 콘텐츠를 중앙 관리
+// Supabase + 로컬 스토리지 하이브리드 방식으로 모든 사이트 콘텐츠를 중앙 관리
+
+import { supabase, isSupabaseAvailable } from './supabase';
 
 // ===== 타입 정의 =====
 
@@ -44,6 +46,7 @@ export interface ExperienceData {
   period: string;
   highlights_ko: string[];
   highlights_en: string[];
+  order_index: number; // 정렬 순서 (낮을수록 상단)
 }
 
 // 프로젝트 갤러리 이미지
@@ -229,6 +232,7 @@ export const DEFAULT_EXPERIENCES: ExperienceData[] = [
       'Managed projects worth tens of billions in annual revenue',
       'Planned SLICK brand exhibitions and linked applications, composed personalized content',
     ],
+    order_index: 0,
   },
   {
     id: 'exp-2',
@@ -247,6 +251,7 @@ export const DEFAULT_EXPERIENCES: ExperienceData[] = [
       'Checked learning progress, provided individual feedback, shared learning outcomes through parent consultations',
       'Managed regular achievement assessments, class schedules, and textbook preparation',
     ],
+    order_index: 1,
   },
 ];
 
@@ -519,7 +524,7 @@ export const DEFAULT_INTERVIEWS: InterviewData[] = [
 ];
 
 // ===== 로컬 스토리지 키 =====
-const STORAGE_KEYS = {
+export const STORAGE_KEYS = {
   PROFILE: 'site_profile',
   COMPETENCIES: 'site_competencies',
   EXPERIENCES: 'site_experiences',
@@ -537,112 +542,393 @@ export const DEFAULT_CATEGORIES: CategoryData[] = [
   { id: 'cat-3', key: 'proposal', label_ko: '제안서', label_en: 'Proposal', icon: 'FileText', order_index: 2 },
 ];
 
-// ===== 데이터 로드/저장 함수 =====
+// ===== Supabase 헬퍼 함수 =====
+
+// Supabase에서 데이터 로드
+async function loadFromSupabase<T>(key: string): Promise<T | null> {
+  if (!isSupabaseAvailable() || !supabase) return null;
+  
+  try {
+    const { data, error } = await supabase
+      .from('site_content')
+      .select('data')
+      .eq('key', key)
+      .single();
+    
+    if (error) {
+      if (error.code !== 'PGRST116') { // 'PGRST116' = 데이터 없음
+        console.warn(`Supabase load error for ${key}:`, error);
+      }
+      return null;
+    }
+    return data?.data as T;
+  } catch (err) {
+    console.warn(`Supabase load failed for ${key}:`, err);
+    return null;
+  }
+}
+
+// Supabase에 데이터 저장
+async function saveToSupabase<T>(key: string, data: T): Promise<boolean> {
+  if (!isSupabaseAvailable() || !supabase) return false;
+  
+  try {
+    const { error } = await supabase.rpc('upsert_site_content', {
+      p_key: key,
+      p_data: data,
+    });
+    
+    if (error) {
+      // RPC 함수가 없으면 직접 upsert
+      const { error: upsertError } = await supabase
+        .from('site_content')
+        .upsert({
+          key,
+          data,
+          updated_at: new Date().toISOString(),
+        });
+      
+      if (upsertError) {
+        console.warn(`Supabase save error for ${key}:`, upsertError);
+        return false;
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn(`Supabase save failed for ${key}:`, err);
+    return false;
+  }
+}
+
+// 로컬 스토리지에서 데이터 로드
+function loadFromLocalStorage<T>(key: string, defaultValue: T): T {
+  if (typeof window === 'undefined') return defaultValue;
+  const saved = localStorage.getItem(key);
+  return saved ? JSON.parse(saved) : defaultValue;
+}
+
+// 커스텀 이벤트 이름 (같은 탭 내 데이터 동기화용)
+export const SITE_DATA_UPDATED_EVENT = 'siteDataUpdated';
+
+// 커스텀 이벤트 타입
+export interface SiteDataUpdatedEvent extends CustomEvent {
+  detail: {
+    key: string;
+    data: unknown;
+  };
+}
+
+// 로컬 스토리지에 데이터 저장 및 이벤트 발생
+function saveToLocalStorage<T>(key: string, data: T): void {
+  if (typeof window === 'undefined') return;
+  const jsonData = JSON.stringify(data);
+  localStorage.setItem(key, jsonData);
+  
+  // 다른 탭용 StorageEvent
+  window.dispatchEvent(new StorageEvent('storage', {
+    key,
+    newValue: jsonData,
+  }));
+  
+  // 같은 탭용 CustomEvent (StorageEvent는 같은 탭에서 발생하지 않음)
+  window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
+    detail: { key, data }
+  }));
+}
+
+// 캐시 객체 (Supabase 데이터 로컬 캐싱)
+const dataCache: Record<string, { data: unknown; timestamp: number }> = {};
+const CACHE_TTL = 5000; // 5초
+
+function getCachedData<T>(key: string): T | null {
+  const cached = dataCache[key];
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data as T;
+  }
+  return null;
+}
+
+function setCachedData<T>(key: string, data: T): void {
+  dataCache[key] = { data, timestamp: Date.now() };
+}
+
+// ===== 데이터 로드/저장 함수 (하이브리드) =====
 
 // 프로필
 export function getProfile(): ProfileData {
-  if (typeof window === 'undefined') return DEFAULT_PROFILE;
-  const saved = localStorage.getItem(STORAGE_KEYS.PROFILE);
-  return saved ? JSON.parse(saved) : DEFAULT_PROFILE;
+  // 먼저 로컬 스토리지에서 로드 (빠른 응답)
+  const local = loadFromLocalStorage(STORAGE_KEYS.PROFILE, DEFAULT_PROFILE);
+  
+  // 백그라운드에서 Supabase 동기화
+  if (typeof window !== 'undefined' && isSupabaseAvailable()) {
+    loadFromSupabase<ProfileData>(STORAGE_KEYS.PROFILE).then(remote => {
+      if (remote) {
+        saveToLocalStorage(STORAGE_KEYS.PROFILE, remote);
+      }
+    });
+  }
+  
+  return local;
 }
 
-export function saveProfile(data: ProfileData): void {
+export async function saveProfile(data: ProfileData): Promise<void> {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(data));
+  
+  // 로컬 스토리지에 먼저 저장 (빠른 반영)
+  saveToLocalStorage(STORAGE_KEYS.PROFILE, data);
+  
+  // Supabase에 동기화
+  await saveToSupabase(STORAGE_KEYS.PROFILE, data);
 }
 
 // 역량
 export function getCompetencies(): CompetencyData[] {
-  if (typeof window === 'undefined') return DEFAULT_COMPETENCIES;
-  const saved = localStorage.getItem(STORAGE_KEYS.COMPETENCIES);
-  return saved ? JSON.parse(saved) : DEFAULT_COMPETENCIES;
+  const local = loadFromLocalStorage(STORAGE_KEYS.COMPETENCIES, DEFAULT_COMPETENCIES);
+  
+  if (typeof window !== 'undefined' && isSupabaseAvailable()) {
+    loadFromSupabase<CompetencyData[]>(STORAGE_KEYS.COMPETENCIES).then(remote => {
+      if (remote) {
+        saveToLocalStorage(STORAGE_KEYS.COMPETENCIES, remote);
+      }
+    });
+  }
+  
+  return local;
 }
 
-export function saveCompetencies(data: CompetencyData[]): void {
+export async function saveCompetencies(data: CompetencyData[]): Promise<void> {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.COMPETENCIES, JSON.stringify(data));
+  saveToLocalStorage(STORAGE_KEYS.COMPETENCIES, data);
+  await saveToSupabase(STORAGE_KEYS.COMPETENCIES, data);
 }
 
 // 경력
 export function getExperiences(): ExperienceData[] {
-  if (typeof window === 'undefined') return DEFAULT_EXPERIENCES;
-  const saved = localStorage.getItem(STORAGE_KEYS.EXPERIENCES);
-  return saved ? JSON.parse(saved) : DEFAULT_EXPERIENCES;
+  const local = loadFromLocalStorage<ExperienceData[]>(STORAGE_KEYS.EXPERIENCES, DEFAULT_EXPERIENCES);
+  
+  // 마이그레이션: order_index가 없는 기존 데이터 처리
+  const migrated = local.map((exp, index) => ({
+    ...exp,
+    order_index: exp.order_index ?? index,
+  }));
+  
+  // 백그라운드에서 Supabase 동기화
+  if (typeof window !== 'undefined' && isSupabaseAvailable()) {
+    loadFromSupabase<ExperienceData[]>(STORAGE_KEYS.EXPERIENCES).then(remote => {
+      if (remote) {
+        const remoteMigrated = remote.map((exp, index) => ({
+          ...exp,
+          order_index: exp.order_index ?? index,
+        }));
+        saveToLocalStorage(STORAGE_KEYS.EXPERIENCES, remoteMigrated);
+      }
+    });
+  }
+  
+  return migrated.sort((a, b) => a.order_index - b.order_index);
 }
 
-export function saveExperiences(data: ExperienceData[]): void {
+export async function saveExperiences(data: ExperienceData[]): Promise<void> {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.EXPERIENCES, JSON.stringify(data));
+  
+  const withOrderIndex = data.map((exp, index) => ({
+    ...exp,
+    order_index: exp.order_index ?? index,
+  }));
+  
+  saveToLocalStorage(STORAGE_KEYS.EXPERIENCES, withOrderIndex);
+  await saveToSupabase(STORAGE_KEYS.EXPERIENCES, withOrderIndex);
 }
 
 // 프로젝트
 export function getProjects(): ProjectData[] {
-  if (typeof window === 'undefined') return DEFAULT_PROJECTS;
-  const saved = localStorage.getItem(STORAGE_KEYS.PROJECTS);
-  return saved ? JSON.parse(saved) : DEFAULT_PROJECTS;
+  const local = loadFromLocalStorage<ProjectData[]>(STORAGE_KEYS.PROJECTS, DEFAULT_PROJECTS);
+  
+  if (typeof window !== 'undefined' && isSupabaseAvailable()) {
+    loadFromSupabase<ProjectData[]>(STORAGE_KEYS.PROJECTS).then(remote => {
+      if (remote) {
+        saveToLocalStorage(STORAGE_KEYS.PROJECTS, remote);
+      }
+    });
+  }
+  
+  return local.sort((a, b) => a.order_index - b.order_index);
 }
 
-export function saveProjects(data: ProjectData[]): void {
+export async function saveProjects(data: ProjectData[]): Promise<void> {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(data));
+  saveToLocalStorage(STORAGE_KEYS.PROJECTS, data);
+  await saveToSupabase(STORAGE_KEYS.PROJECTS, data);
 }
 
 // 연락처
 export function getContact(): ContactData {
-  if (typeof window === 'undefined') return DEFAULT_CONTACT;
-  const saved = localStorage.getItem(STORAGE_KEYS.CONTACT);
-  return saved ? JSON.parse(saved) : DEFAULT_CONTACT;
+  return loadFromLocalStorage(STORAGE_KEYS.CONTACT, DEFAULT_CONTACT);
 }
 
-export function saveContact(data: ContactData): void {
+export async function saveContact(data: ContactData): Promise<void> {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.CONTACT, JSON.stringify(data));
+  saveToLocalStorage(STORAGE_KEYS.CONTACT, data);
+  await saveToSupabase(STORAGE_KEYS.CONTACT, data);
 }
 
 // 메시지
 export function getMessages(): GuestMessage[] {
-  if (typeof window === 'undefined') return [];
-  const saved = localStorage.getItem(STORAGE_KEYS.MESSAGES);
-  return saved ? JSON.parse(saved) : [];
+  return loadFromLocalStorage<GuestMessage[]>(STORAGE_KEYS.MESSAGES, []);
 }
 
-export function saveMessages(data: GuestMessage[]): void {
+export async function saveMessages(data: GuestMessage[]): Promise<void> {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(data));
+  saveToLocalStorage(STORAGE_KEYS.MESSAGES, data);
+  await saveToSupabase(STORAGE_KEYS.MESSAGES, data);
 }
 
 // 카테고리
 export function getCategories(): CategoryData[] {
-  if (typeof window === 'undefined') return DEFAULT_CATEGORIES;
-  const saved = localStorage.getItem(STORAGE_KEYS.CATEGORIES);
-  return saved ? JSON.parse(saved) : DEFAULT_CATEGORIES;
+  const local = loadFromLocalStorage(STORAGE_KEYS.CATEGORIES, DEFAULT_CATEGORIES);
+  
+  if (typeof window !== 'undefined' && isSupabaseAvailable()) {
+    loadFromSupabase<CategoryData[]>(STORAGE_KEYS.CATEGORIES).then(remote => {
+      if (remote) {
+        saveToLocalStorage(STORAGE_KEYS.CATEGORIES, remote);
+      }
+    });
+  }
+  
+  return local;
 }
 
-export function saveCategories(data: CategoryData[]): void {
+export async function saveCategories(data: CategoryData[]): Promise<void> {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(data));
+  saveToLocalStorage(STORAGE_KEYS.CATEGORIES, data);
+  await saveToSupabase(STORAGE_KEYS.CATEGORIES, data);
 }
 
 // 인터뷰
 export function getInterviews(): InterviewData[] {
-  if (typeof window === 'undefined') return DEFAULT_INTERVIEWS;
-  const saved = localStorage.getItem(STORAGE_KEYS.INTERVIEWS);
-  return saved ? JSON.parse(saved) : DEFAULT_INTERVIEWS;
+  const local = loadFromLocalStorage(STORAGE_KEYS.INTERVIEWS, DEFAULT_INTERVIEWS);
+  
+  if (typeof window !== 'undefined' && isSupabaseAvailable()) {
+    loadFromSupabase<InterviewData[]>(STORAGE_KEYS.INTERVIEWS).then(remote => {
+      if (remote) {
+        saveToLocalStorage(STORAGE_KEYS.INTERVIEWS, remote);
+      }
+    });
+  }
+  
+  return local;
 }
 
-export function saveInterviews(data: InterviewData[]): void {
+export async function saveInterviews(data: InterviewData[]): Promise<void> {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.INTERVIEWS, JSON.stringify(data));
+  saveToLocalStorage(STORAGE_KEYS.INTERVIEWS, data);
+  await saveToSupabase(STORAGE_KEYS.INTERVIEWS, data);
+}
+
+// Supabase 연결 여부 확인
+export function isCloudSyncEnabled(): boolean {
+  return isSupabaseAvailable();
+}
+
+// Supabase에서 모든 데이터 동기화 (페이지 로드 시 호출)
+export async function syncFromCloud(): Promise<void> {
+  if (!isSupabaseAvailable() || !supabase) return;
+  
+  const keys = [
+    STORAGE_KEYS.PROFILE,
+    STORAGE_KEYS.COMPETENCIES,
+    STORAGE_KEYS.EXPERIENCES,
+    STORAGE_KEYS.PROJECTS,
+    STORAGE_KEYS.CATEGORIES,
+    STORAGE_KEYS.INTERVIEWS,
+  ];
+  
+  for (const key of keys) {
+    const remote = await loadFromSupabase(key);
+    if (remote) {
+      saveToLocalStorage(key, remote);
+    }
+  }
+}
+
+// 로컬 스토리지를 Supabase에 업로드 (마이그레이션)
+export async function uploadToCloud(): Promise<boolean> {
+  if (!isSupabaseAvailable()) {
+    console.warn('Supabase가 설정되지 않았습니다.');
+    return false;
+  }
+  
+  const data = {
+    [STORAGE_KEYS.PROFILE]: getProfile(),
+    [STORAGE_KEYS.COMPETENCIES]: getCompetencies(),
+    [STORAGE_KEYS.EXPERIENCES]: getExperiences(),
+    [STORAGE_KEYS.PROJECTS]: getProjects(),
+    [STORAGE_KEYS.CATEGORIES]: getCategories(),
+    [STORAGE_KEYS.INTERVIEWS]: getInterviews(),
+  };
+  
+  let success = true;
+  for (const [key, value] of Object.entries(data)) {
+    const result = await saveToSupabase(key, value);
+    if (!result) success = false;
+  }
+  
+  return success;
 }
 
 // 데이터 초기화 (기본값으로 리셋)
-export function resetAllData(): void {
+export async function resetAllData(): Promise<void> {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(DEFAULT_PROFILE));
-  localStorage.setItem(STORAGE_KEYS.COMPETENCIES, JSON.stringify(DEFAULT_COMPETENCIES));
-  localStorage.setItem(STORAGE_KEYS.EXPERIENCES, JSON.stringify(DEFAULT_EXPERIENCES));
-  localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(DEFAULT_PROJECTS));
-  localStorage.setItem(STORAGE_KEYS.CONTACT, JSON.stringify(DEFAULT_CONTACT));
-  localStorage.setItem(STORAGE_KEYS.INTERVIEWS, JSON.stringify(DEFAULT_INTERVIEWS));
+  
+  saveToLocalStorage(STORAGE_KEYS.PROFILE, DEFAULT_PROFILE);
+  saveToLocalStorage(STORAGE_KEYS.COMPETENCIES, DEFAULT_COMPETENCIES);
+  saveToLocalStorage(STORAGE_KEYS.EXPERIENCES, DEFAULT_EXPERIENCES);
+  saveToLocalStorage(STORAGE_KEYS.PROJECTS, DEFAULT_PROJECTS);
+  saveToLocalStorage(STORAGE_KEYS.CONTACT, DEFAULT_CONTACT);
+  saveToLocalStorage(STORAGE_KEYS.INTERVIEWS, DEFAULT_INTERVIEWS);
+  
+  // Supabase에도 초기화
+  if (isSupabaseAvailable()) {
+    await saveToSupabase(STORAGE_KEYS.PROFILE, DEFAULT_PROFILE);
+    await saveToSupabase(STORAGE_KEYS.COMPETENCIES, DEFAULT_COMPETENCIES);
+    await saveToSupabase(STORAGE_KEYS.EXPERIENCES, DEFAULT_EXPERIENCES);
+    await saveToSupabase(STORAGE_KEYS.PROJECTS, DEFAULT_PROJECTS);
+    await saveToSupabase(STORAGE_KEYS.CATEGORIES, DEFAULT_CATEGORIES);
+    await saveToSupabase(STORAGE_KEYS.INTERVIEWS, DEFAULT_INTERVIEWS);
+  }
+}
+
+// Supabase 실시간 구독 설정
+export function subscribeToChanges(callback: (key: string) => void): (() => void) | null {
+  if (!isSupabaseAvailable() || !supabase) return null;
+  
+  const channel = supabase
+    .channel('site_content_changes')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'site_content',
+      },
+      (payload) => {
+        const key = (payload.new as { key?: string })?.key;
+        if (key) {
+          // 원격 데이터로 로컬 업데이트
+          loadFromSupabase(key).then(data => {
+            if (data) {
+              saveToLocalStorage(key, data);
+              callback(key);
+            }
+          });
+        }
+      }
+    )
+    .subscribe();
+  
+  // 구독 해제 함수 반환
+  return () => {
+    supabase?.removeChannel(channel);
+  };
 }
 
