@@ -671,10 +671,9 @@ export default function GuestBook() {
         }
         return;
       } catch (error: any) {
-        console.error('Supabase 저장 실패:', error);
-        // 에러 메시지가 이미 명확하면 그대로 사용, 아니면 기본 메시지
-        const errorMessage = error?.message || '알 수 없는 오류가 발생했습니다.';
-        throw new Error(errorMessage);
+        console.warn('Supabase 저장 실패, 로컬스토리지로 폴백:', error);
+        // Supabase 실패 시 로컬스토리지로 폴백
+        // 아래 로컬스토리지 모드 코드로 계속 진행
       }
     }
 
