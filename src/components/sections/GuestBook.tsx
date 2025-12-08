@@ -24,7 +24,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
-import { getMessages, saveMessages, translateText, type GuestMessage } from '@/lib/siteData';
+import { getMessages, saveMessages, translateText, type GuestMessage, SITE_DATA_UPDATED_EVENT, STORAGE_KEYS } from '@/lib/siteData';
 import { api, isSupabaseAvailable, type GuestbookDB } from '@/lib/supabase';
 
 // Supabase DB 타입을 GuestMessage 타입으로 변환
@@ -68,6 +68,7 @@ const content = {
     submitButton: '질문 남기기',
     success: '메시지가 등록되었습니다. 빠르게 답변드릴게요!',
     error: '필수 항목을 모두 입력해주세요.',
+    submitError: '등록에 실패했습니다. 다시 시도해주세요.',
     filterAll: '전체',
     filterAnswered: '답변 완료',
     filterPending: '답변 대기',
@@ -106,6 +107,7 @@ const content = {
     submitButton: 'Submit Question',
     success: 'Your message has been received. I will respond shortly!',
     error: 'Please fill out the required fields.',
+    submitError: 'Failed to submit. Please try again.',
     filterAll: 'All',
     filterAnswered: 'Answered',
     filterPending: 'Pending',
@@ -132,7 +134,7 @@ const content = {
 function QuestionModal({ isOpen, onClose, onSubmit, locale }: {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (form: any) => void;
+  onSubmit: (form: any) => Promise<void>;
   locale: string;
 }) {
   const t = content[locale as keyof typeof content] ?? content.ko;
@@ -144,7 +146,7 @@ function QuestionModal({ isOpen, onClose, onSubmit, locale }: {
     allowNotification: true,
     isSecret: false,
   });
-  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error' | 'submitError'>('idle');
 
   useEffect(() => {
     if (isOpen) {
@@ -153,7 +155,7 @@ function QuestionModal({ isOpen, onClose, onSubmit, locale }: {
     }
   }, [isOpen]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim() || !form.message.trim()) {
       setStatus('error');
@@ -161,12 +163,19 @@ function QuestionModal({ isOpen, onClose, onSubmit, locale }: {
       return;
     }
 
-    onSubmit(form);
-    setStatus('success');
-    setTimeout(() => {
-      onClose();
-      setStatus('idle');
-    }, 800); // 0.8초 후 팝업 닫힘
+    setStatus('submitting');
+    try {
+      await onSubmit(form);
+      setStatus('success');
+      setTimeout(() => {
+        onClose();
+        setStatus('idle');
+      }, 800); // 0.8초 후 팝업 닫힘
+    } catch (error) {
+      console.error('질문 등록 실패:', error);
+      setStatus('submitError');
+      setTimeout(() => setStatus('idle'), 3000);
+    }
   };
 
   return (
@@ -282,22 +291,35 @@ function QuestionModal({ isOpen, onClose, onSubmit, locale }: {
                     onChange={(e) => setForm((prev) => ({ ...prev, isSecret: e.target.checked }))}
                     className="w-4 h-4 rounded border-[--border-color] bg-[--bg-tertiary] text-[--accent-color]"
                   />
-                  <div className="flex items-center gap-2 text-sm">
-                    {form.isSecret ? (
-                      <EyeOff className="w-4 h-4 text-yellow-400" />
-                    ) : (
-                      <Eye className="w-4 h-4 text-[--text-secondary]" />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      {form.isSecret ? (
+                        <EyeOff className="w-4 h-4 text-yellow-400" />
+                      ) : (
+                        <Eye className="w-4 h-4 text-[--text-secondary]" />
+                      )}
+                      <span className={form.isSecret ? 'text-yellow-400' : 'text-[--text-secondary]'}>
+                        {t.secretMessage}
+                      </span>
+                    </div>
+                    {form.isSecret && !form.email && (
+                      <p className="text-xs text-yellow-400/70 mt-1 ml-6">
+                        {locale === 'en'
+                          ? '💡 Add email to receive answer notification'
+                          : '💡 이메일을 입력하시면 답변 알림을 받을 수 있습니다'}
+                      </p>
                     )}
-                    <span className={form.isSecret ? 'text-yellow-400' : 'text-[--text-secondary]'}>
-                      {t.secretMessage}
-                    </span>
                   </div>
                 </label>
 
-                <label className={`flex items-center gap-3 ${form.email ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                <label className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
+                  form.email
+                    ? 'cursor-pointer bg-[--bg-tertiary]/30 border-[--border-color] hover:border-[--accent-color]/50'
+                    : 'cursor-not-allowed opacity-50 bg-[--bg-tertiary]/10 border-[--border-color]'
+                }`}>
                   <input
                     type="checkbox"
-                    checked={form.allowNotification}
+                    checked={form.allowNotification && !!form.email}
                     onChange={(e) => setForm((prev) => ({ ...prev, allowNotification: e.target.checked }))}
                     className="w-4 h-4 rounded border-[--border-color] bg-[--bg-tertiary] text-[--accent-color]"
                     disabled={!form.email}
@@ -309,7 +331,7 @@ function QuestionModal({ isOpen, onClose, onSubmit, locale }: {
                 </label>
               </div>
 
-              {status !== 'idle' && (
+              {(status === 'success' || status === 'error' || status === 'submitError') && (
                 <div
                   className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm ${
                     status === 'success'
@@ -322,7 +344,7 @@ function QuestionModal({ isOpen, onClose, onSubmit, locale }: {
                   ) : (
                     <AlertCircle className="w-4 h-4" />
                   )}
-                  {status === 'success' ? t.success : t.error}
+                  {status === 'success' ? t.success : status === 'submitError' ? t.submitError : t.error}
                 </div>
               )}
 
@@ -330,18 +352,29 @@ function QuestionModal({ isOpen, onClose, onSubmit, locale }: {
                 <button
                   type="button"
                   onClick={onClose}
-                  className="flex-1 px-4 py-3 rounded-xl border border-[--border-color] text-[--text-secondary] hover:bg-[--bg-tertiary] transition-colors"
+                  disabled={status === 'submitting'}
+                  className="flex-1 px-4 py-3 rounded-xl border border-[--border-color] text-[--text-secondary] hover:bg-[--bg-tertiary] transition-colors disabled:opacity-50"
                 >
                   {t.cancel}
                 </button>
                 <motion.button
                   type="submit"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="flex-1 btn-primary flex items-center justify-center gap-2"
+                  disabled={status === 'submitting'}
+                  whileHover={{ scale: status === 'submitting' ? 1 : 1.02 }}
+                  whileTap={{ scale: status === 'submitting' ? 1 : 0.98 }}
+                  className="flex-1 btn-primary flex items-center justify-center gap-2 disabled:opacity-70"
                 >
-                  <Send className="w-4 h-4" />
-                  {t.submit}
+                  {status === 'submitting' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      등록 중...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      {t.submit}
+                    </>
+                  )}
                 </motion.button>
               </div>
             </form>
@@ -430,7 +463,7 @@ function QuestionCard({ message, locale, onToggleReply }: {
           >
             <div className="flex items-center gap-2">
               <MessageSquare className={`w-3.5 h-3.5 ${message.isReplyLocked ? 'text-yellow-400' : 'text-[--accent-color]'}`} />
-              <span className="text-xs font-semibold text-white">A.</span>
+              <span className="text-xs font-semibold text-white">윤지희</span>
               {(message.isSecret || message.isReplyLocked) && (
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400">비공개</span>
               )}
@@ -490,12 +523,11 @@ export default function GuestBook() {
     try {
       if (isSupabaseAvailable()) {
         const dbMessages = await api.getGuestbook();
-        if (dbMessages.length > 0 || isSupabaseAvailable()) {
-          setMessages(dbMessages.map(dbToGuestMessage));
-          setUseSupabase(true);
-          setIsLoading(false);
-          return;
-        }
+        // Supabase 연결 성공 - DB 데이터 사용
+        setMessages(dbMessages.map(dbToGuestMessage));
+        setUseSupabase(true);
+        setIsLoading(false);
+        return;
       }
     } catch (error) {
       console.warn('Supabase 로드 실패, 로컬스토리지 사용:', error);
@@ -510,7 +542,36 @@ export default function GuestBook() {
   useEffect(() => {
     setIsClient(true);
     loadMessages();
-  }, [loadMessages]);
+    
+    // 같은 탭에서 메시지 업데이트 감지 (어드민에서 답변/삭제 시)
+    const handleDataUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail?.key === STORAGE_KEYS.MESSAGES) {
+        // Supabase 사용 시 DB에서 최신 데이터 다시 로드
+        if (useSupabase) {
+          loadMessages();
+        } else {
+          // 로컬스토리지 모드면 이벤트에서 전달된 데이터 사용 또는 다시 로드
+          loadMessages();
+        }
+      }
+    };
+    
+    // 다른 탭에서 메시지 업데이트 감지
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.MESSAGES) {
+        loadMessages();
+      }
+    };
+    
+    window.addEventListener(SITE_DATA_UPDATED_EVENT, handleDataUpdate);
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener(SITE_DATA_UPDATED_EVENT, handleDataUpdate);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [loadMessages, useSupabase]);
 
   const filteredMessages = useMemo(() => {
     let filtered = messages;
@@ -538,34 +599,90 @@ export default function GuestBook() {
       }
     }
 
-    // Supabase 사용 시
+    // Supabase 사용 시: 서버 API를 통해 Service Role로 삽입 (RLS 우회)
     if (useSupabase && isSupabaseAvailable()) {
       try {
-        const result = await api.createGuestbookMessage({
-          name: form.name.trim(),
-          company: form.company.trim() || undefined,
-          email: form.email.trim() || undefined,
-          message: originalMessage,
-          message_en: translatedMessage,
-          allow_notification: !!form.email && form.allowNotification,
-          is_secret: form.isSecret,
+        const response = await fetch('/api/guestbook', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: form.name.trim(),
+            company: form.company.trim() || undefined,
+            email: form.email.trim() || undefined,
+            message: originalMessage,
+            message_en: translatedMessage,
+            allow_notification: !!form.email && form.allowNotification,
+            is_secret: form.isSecret || false,
+          }),
         });
-        if (result) {
-          // 새 메시지를 상단에 추가
-          setMessages(prev => [dbToGuestMessage(result), ...prev]);
+
+        // 응답 JSON 파싱 (한 번만 호출)
+        let result;
+        try {
+          const responseText = await response.text();
+          if (!responseText) {
+            throw new Error('서버 응답이 비어있습니다.');
+          }
+          result = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error('JSON 파싱 실패:', parseError);
+          console.error('응답 상태:', response.status, response.statusText);
+          throw new Error('서버 응답을 처리할 수 없습니다.');
+        }
+
+        // 네트워크 에러 체크 (JSON 파싱 후)
+        if (!response.ok) {
+          const errorMessage = result?.error || `HTTP ${response.status}: ${response.statusText}`;
+          console.error('API 에러 응답:', { status: response.status, error: errorMessage, result });
+          throw new Error(errorMessage);
+        }
+
+        // 성공 여부 확인
+        if (!result?.success) {
+          const errorMessage = result?.error || '저장에 실패했습니다.';
+          console.error('저장 실패:', { result, error: errorMessage });
+          throw new Error(errorMessage);
+        }
+
+        // 비밀글 처리
+        if (form.isSecret || result.is_secret) {
+          // 비밀글은 저장 성공만 알리고 목록은 갱신 신호만 보냄
+          // (어드민에서만 조회 가능)
+          // 성공적으로 저장되었음을 확인하기 위해 이벤트 발생
+          console.log('비밀글 등록 성공:', result);
+
+          // 어드민 페이지에만 갱신 신호 전송
+          window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
+            detail: { key: STORAGE_KEYS.MESSAGES }
+          }));
+
+          // 비밀글 등록 성공 - 정상적으로 완료되었으므로 정상 반환
+          // handleSubmit의 success 상태가 표시됨
           return;
         }
-      } catch (error) {
+
+        // 공개글은 반환된 데이터를 바로 반영
+        if (result.data) {
+          const newMsg = dbToGuestMessage(result.data as GuestbookDB);
+          setMessages(prev => [newMsg, ...prev]);
+          window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
+            detail: { key: STORAGE_KEYS.MESSAGES, data: newMsg }
+          }));
+        }
+        return;
+      } catch (error: any) {
         console.error('Supabase 저장 실패:', error);
+        // 에러 메시지가 이미 명확하면 그대로 사용, 아니면 기본 메시지
+        const errorMessage = error?.message || '알 수 없는 오류가 발생했습니다.';
+        throw new Error(errorMessage);
       }
     }
 
-    // 폴백: 로컬스토리지
+    // 로컬스토리지 모드: 로컬스토리지에 저장
     const newMessage: GuestMessage = {
-      id:
-        typeof crypto !== 'undefined' && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `msg-${Date.now()}`,
+      id: typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `msg-${Date.now()}`,
       name: form.name.trim(),
       company: form.company.trim() || undefined,
       email: form.email.trim() || undefined,
@@ -578,9 +695,20 @@ export default function GuestBook() {
       isReplyLocked: form.isSecret,
     };
 
-    const updated = [newMessage, ...messages];
-    setMessages(updated);
+    // 로컬스토리지에 저장
+    const currentMessages = getMessages();
+    const updated = [newMessage, ...currentMessages];
     saveMessages(updated);
+
+    // 비밀글이 아닌 경우에만 UI에 즉시 반영
+    if (!form.isSecret) {
+      setMessages(prev => [newMessage, ...prev]);
+    }
+
+    // 이벤트 발생 (어드민 페이지 갱신용)
+    window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
+      detail: { key: STORAGE_KEYS.MESSAGES, data: newMessage }
+    }));
   };
 
   if (!isClient) {
