@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Save, MessageSquare, User, Mail, Clock, Check, Send, Trash2, Lock, Unlock, Bell, X, Edit3, Loader2, Building2, EyeOff, Eye, RefreshCw } from 'lucide-react';
-import { getMessages, saveMessages, translateText, type GuestMessage } from '@/lib/siteData';
+import { getMessages, saveMessages, translateText, type GuestMessage, SITE_DATA_UPDATED_EVENT, STORAGE_KEYS } from '@/lib/siteData';
 import { sendReplyEmail } from '@/lib/email';
 import { api, isSupabaseAvailable, type GuestbookDB } from '@/lib/supabase';
 
@@ -53,13 +53,43 @@ export default function MessagesTab() {
       console.warn('Supabase 로드 실패, 로컬스토리지 사용:', error);
     }
     // 폴백: 로컬스토리지
-    setMessages(getMessages());
+    const localMessages = getMessages();
+    console.log('📂 어드민: 로컬스토리지에서 메시지 로드:', {
+      totalMessages: localMessages.length,
+      secretCount: localMessages.filter(m => m.isSecret).length,
+      messages: localMessages.map(m => ({ id: m.id, name: m.name, isSecret: m.isSecret }))
+    });
+    setMessages(localMessages);
     setUseSupabase(false);
     setIsLoading(false);
   }, []);
 
   useEffect(() => {
     loadMessages();
+    
+    // 같은 탭에서 메시지 업데이트 감지 (CustomEvent) - 프론트에서 질문 추가 시
+    const handleDataUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail?.key === STORAGE_KEYS.MESSAGES) {
+        // Supabase에서 최신 데이터 다시 로드
+        loadMessages();
+      }
+    };
+    
+    // 다른 탭에서 메시지 업데이트 감지 (StorageEvent)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.MESSAGES) {
+        loadMessages();
+      }
+    };
+    
+    window.addEventListener(SITE_DATA_UPDATED_EVENT, handleDataUpdate);
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener(SITE_DATA_UPDATED_EVENT, handleDataUpdate);
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, [loadMessages]);
 
   const handleSave = () => {
@@ -90,27 +120,53 @@ export default function MessagesTab() {
     });
   };
 
+  // 전체 목록 기준 역순 번호 부여 (최신 = 가장 큰 번호)
+  const getDisplayNumber = (id: string) => {
+    const indexInAll = messages.findIndex(m => m.id === id);
+    if (indexInAll === -1) return '-';
+    return messages.length - indexInAll;
+  };
+
+  // 이벤트 발생 헬퍼 함수
+  const dispatchMessagesUpdate = (data: GuestMessage[]) => {
+    window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
+      detail: { key: STORAGE_KEYS.MESSAGES, data }
+    }));
+  };
+
   const handleMarkAsRead = async (id: string) => {
     if (useSupabase) {
       await api.markGuestbookAsRead(id);
+      // 최신 데이터 다시 로드
+      await loadMessages();
+    } else {
+      const updated = messages.map(m => m.id === id ? { ...m, isRead: true } : m);
+      setMessages(updated);
+      saveMessages(updated);
     }
-    const updated = messages.map(m => m.id === id ? { ...m, isRead: true } : m);
-    setMessages(updated);
-    if (!useSupabase) saveMessages(updated);
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('정말 삭제하시겠습니까?')) return;
+    
     if (useSupabase) {
       const success = await api.deleteGuestbookMessage(id);
       if (!success) {
         alert('삭제 실패');
         return;
       }
+      // Supabase에서 삭제 성공 - 최신 데이터 다시 로드
+      await loadMessages();
+      // 다른 컴포넌트에 알림
+      window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
+        detail: { key: STORAGE_KEYS.MESSAGES }
+      }));
+    } else {
+      // 로컬스토리지 모드
+      const updated = messages.filter(m => m.id !== id);
+      setMessages(updated);
+      saveMessages(updated);
     }
-    const updated = messages.filter(m => m.id !== id);
-    setMessages(updated);
-    if (!useSupabase) saveMessages(updated);
   };
 
   const handleToggleLock = async (id: string) => {
@@ -119,10 +175,13 @@ export default function MessagesTab() {
     
     if (useSupabase) {
       await api.updateGuestbookMessage(id, { is_reply_locked: !target.isReplyLocked });
+      // 최신 데이터 다시 로드
+      await loadMessages();
+    } else {
+      const updated = messages.map(m => m.id === id ? { ...m, isReplyLocked: !m.isReplyLocked } : m);
+      setMessages(updated);
+      saveMessages(updated);
     }
-    const updated = messages.map(m => m.id === id ? { ...m, isReplyLocked: !m.isReplyLocked } : m);
-    setMessages(updated);
-    if (!useSupabase) saveMessages(updated);
   };
 
   const handleToggleSecret = async (id: string) => {
@@ -131,10 +190,13 @@ export default function MessagesTab() {
     
     if (useSupabase) {
       await api.updateGuestbookMessage(id, { is_secret: !target.isSecret });
+      // 최신 데이터 다시 로드
+      await loadMessages();
+    } else {
+      const updated = messages.map(m => m.id === id ? { ...m, isSecret: !m.isSecret } : m);
+      setMessages(updated);
+      saveMessages(updated);
     }
-    const updated = messages.map(m => m.id === id ? { ...m, isSecret: !m.isSecret } : m);
-    setMessages(updated);
-    if (!useSupabase) saveMessages(updated);
   };
 
   const handleSaveReply = async (messageId: string, reply: string, isLocked: boolean, shouldSendEmail: boolean) => {
@@ -154,15 +216,17 @@ export default function MessagesTab() {
     // Supabase 사용 시
     if (useSupabase) {
       await api.addReplyToGuestbook(messageId, reply, reply_en, isLocked);
+      // 최신 데이터 다시 로드
+      await loadMessages();
+    } else {
+      const updated = messages.map(m =>
+        m.id === messageId
+          ? { ...m, reply, reply_en, isReplyLocked: isLocked, replyAt: new Date().toISOString(), isRead: true }
+          : m
+      );
+      setMessages(updated);
+      saveMessages(updated);
     }
-    
-    const updated = messages.map(m =>
-      m.id === messageId
-        ? { ...m, reply, reply_en, isReplyLocked: isLocked, replyAt: new Date().toISOString(), isRead: true }
-        : m
-    );
-    setMessages(updated);
-    if (!useSupabase) saveMessages(updated);
     
     // 이메일 알림 발송
     if (shouldSendEmail && targetMessage?.email && targetMessage.allowNotification) {
@@ -222,15 +286,17 @@ export default function MessagesTab() {
         message_en,
         is_secret: isSecret,
       });
+      // 최신 데이터 다시 로드
+      await loadMessages();
+    } else {
+      const updated = messages.map(m =>
+        m.id === messageId
+          ? { ...m, name, company, email, message, message_en, isSecret }
+          : m
+      );
+      setMessages(updated);
+      saveMessages(updated);
     }
-    
-    const updated = messages.map(m =>
-      m.id === messageId
-        ? { ...m, name, company, email, message, message_en, isSecret }
-        : m
-    );
-    setMessages(updated);
-    if (!useSupabase) saveMessages(updated);
     setIsEditModalOpen(false);
     setEditingMessage(null);
   };
@@ -306,54 +372,66 @@ export default function MessagesTab() {
             <p>메시지가 없습니다.</p>
           </div>
         ) : (
-          filteredMessages.map((msg, index) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
-              className={`glass-card rounded-xl p-4 ${!msg.isRead ? 'border-l-4 border-l-[--accent-color]' : ''} ${msg.isSecret ? 'border border-yellow-500/30 bg-yellow-500/5' : ''}`}
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${msg.isRead ? 'bg-[--bg-tertiary]' : 'bg-[--accent-color]/15'}`}>
-                    <User className={`w-5 h-5 ${msg.isRead ? 'text-[--text-secondary]' : 'text-[--accent-color]'}`} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-white">{msg.name}</span>
-                      {msg.company && (
-                        <span className="text-xs text-[--text-secondary] flex items-center gap-1">
-                          <Building2 className="w-3 h-3" />
-                          {msg.company}
-                        </span>
-                      )}
+          filteredMessages.map((msg, index) => {
+            const displayNumber = getDisplayNumber(msg.id);
+            return (
+              <motion.div
+                key={msg.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className={`glass-card rounded-xl p-4 ${!msg.isRead ? 'border-l-4 border-l-[--accent-color]' : ''} ${msg.isSecret ? 'border border-yellow-500/30 bg-yellow-500/5' : ''}`}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 text-right text-[11px] font-mono font-bold ${
+                      !msg.isRead 
+                        ? 'text-[--accent-color] bg-[--accent-color]/10 px-2 py-1 rounded' 
+                        : 'text-[--text-secondary]'
+                    }`}>
+                      #{displayNumber}
                       {!msg.isRead && (
-                        <span className="px-2 py-0.5 rounded text-[10px] bg-[--accent-color] text-black font-bold">NEW</span>
-                      )}
-                      {msg.isSecret && (
-                        <span className="px-2 py-0.5 rounded text-[10px] bg-yellow-500/20 text-yellow-400 font-bold flex items-center gap-1">
-                          <EyeOff className="w-3 h-3" />
-                          비밀글
-                        </span>
+                        <span className="ml-1 text-[8px]">●</span>
                       )}
                     </div>
-                    {msg.email && (
-                      <div className="flex items-center gap-1 text-xs text-[--text-secondary]">
-                        <Mail className="w-3 h-3" />
-                        {msg.email}
-                        {msg.allowNotification && (
-                          <span className="ml-1 text-[--accent-color]"><Bell className="w-3 h-3 inline" /> 알림 동의</span>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${msg.isRead ? 'bg-[--bg-tertiary]' : 'bg-[--accent-color]/15'}`}>
+                      <User className={`w-5 h-5 ${msg.isRead ? 'text-[--text-secondary]' : 'text-[--accent-color]'}`} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-white">{msg.name}</span>
+                        {msg.company && (
+                          <span className="text-xs text-[--text-secondary] flex items-center gap-1">
+                            <Building2 className="w-3 h-3" />
+                            {msg.company}
+                          </span>
+                        )}
+                        {!msg.isRead && (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-[--accent-color] text-black font-bold">NEW</span>
+                        )}
+                        {msg.isSecret && (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-yellow-500/20 text-yellow-400 font-bold flex items-center gap-1">
+                            <EyeOff className="w-3 h-3" />
+                            비밀글
+                          </span>
                         )}
                       </div>
-                    )}
+                      {msg.email && (
+                        <div className="flex items-center gap-1 text-xs text-[--text-secondary]">
+                          <Mail className="w-3 h-3" />
+                          {msg.email}
+                          {msg.allowNotification && (
+                            <span className="ml-1 text-[--accent-color]"><Bell className="w-3 h-3 inline" /> 알림 동의</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 text-[--text-secondary] text-xs">
+                    <Clock className="w-3 h-3" />
+                    {formatDate(msg.createdAt)}
                   </div>
                 </div>
-                <div className="flex items-center gap-1 text-[--text-secondary] text-xs">
-                  <Clock className="w-3 h-3" />
-                  {formatDate(msg.createdAt)}
-                </div>
-              </div>
 
               <p className="text-sm text-[--text-secondary] whitespace-pre-wrap mb-4 bg-[--bg-tertiary] rounded-lg p-3">
                 {msg.message}
@@ -380,70 +458,71 @@ export default function MessagesTab() {
                 </div>
               )}
 
-              <div className="flex items-center gap-2 pt-3 border-t border-[--border-color] flex-wrap">
-                {!msg.isRead && (
+                <div className="flex items-center gap-2 pt-3 border-t border-[--border-color] flex-wrap">
+                  {!msg.isRead && (
+                    <button
+                      onClick={() => handleMarkAsRead(msg.id)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-[--text-secondary] hover:text-[--accent-color] hover:bg-[--accent-color]/10 transition-colors"
+                    >
+                      <Check className="w-3 h-3" />
+                      읽음 처리
+                    </button>
+                  )}
                   <button
-                    onClick={() => handleMarkAsRead(msg.id)}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-[--text-secondary] hover:text-[--accent-color] hover:bg-[--accent-color]/10 transition-colors"
+                    onClick={() => {
+                      setEditingMessage(msg);
+                      setIsEditModalOpen(true);
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-[--text-secondary] hover:text-white hover:bg-[--bg-tertiary] transition-colors"
                   >
-                    <Check className="w-3 h-3" />
-                    읽음 처리
+                    <Edit3 className="w-3 h-3" />
+                    수정
                   </button>
-                )}
-                <button
-                  onClick={() => {
-                    setEditingMessage(msg);
-                    setIsEditModalOpen(true);
-                  }}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-[--text-secondary] hover:text-white hover:bg-[--bg-tertiary] transition-colors"
-                >
-                  <Edit3 className="w-3 h-3" />
-                  수정
-                </button>
-                <button
-                  onClick={() => {
-                    setReplyingMessage(msg);
-                    setIsReplyModalOpen(true);
-                  }}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-[--accent-color] hover:bg-[--accent-color]/10 transition-colors"
-                >
-                  <Send className="w-3 h-3" />
-                  {msg.reply ? '답변 수정' : '답변하기'}
-                </button>
-                {msg.reply && (
                   <button
-                    onClick={() => handleToggleLock(msg.id)}
+                    onClick={() => {
+                      setReplyingMessage(msg);
+                      setIsReplyModalOpen(true);
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-[--accent-color] hover:bg-[--accent-color]/10 transition-colors"
+                  >
+                    <Send className="w-3 h-3" />
+                    {msg.reply ? '답변 수정' : '답변하기'}
+                  </button>
+                  {msg.reply && (
+                    <button
+                      onClick={() => handleToggleLock(msg.id)}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors ${
+                        msg.isReplyLocked
+                          ? 'text-yellow-400 hover:bg-yellow-500/10'
+                          : 'text-green-400 hover:bg-green-500/10'
+                      }`}
+                    >
+                      {msg.isReplyLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+                      {msg.isReplyLocked ? '잠금 해제' : '잠금'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleToggleSecret(msg.id)}
                     className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors ${
-                      msg.isReplyLocked
+                      msg.isSecret
                         ? 'text-yellow-400 hover:bg-yellow-500/10'
-                        : 'text-green-400 hover:bg-green-500/10'
+                        : 'text-[--text-secondary] hover:bg-[--bg-tertiary]'
                     }`}
                   >
-                    {msg.isReplyLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
-                    {msg.isReplyLocked ? '잠금 해제' : '잠금'}
+                    {msg.isSecret ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    {msg.isSecret ? '공개로 전환' : '비밀글로 전환'}
                   </button>
-                )}
-                <button
-                  onClick={() => handleToggleSecret(msg.id)}
-                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors ${
-                    msg.isSecret
-                      ? 'text-yellow-400 hover:bg-yellow-500/10'
-                      : 'text-[--text-secondary] hover:bg-[--bg-tertiary]'
-                  }`}
-                >
-                  {msg.isSecret ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                  {msg.isSecret ? '공개로 전환' : '비밀글로 전환'}
-                </button>
-                <button
-                  onClick={() => handleDelete(msg.id)}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-red-400 hover:bg-red-500/10 transition-colors ml-auto"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  삭제
-                </button>
-              </div>
-            </motion.div>
-          ))
+                  <button
+                    onClick={() => handleDelete(msg.id)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-red-400 hover:bg-red-500/10 transition-colors ml-auto"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    삭제
+                  </button>
+                </div>
+              </motion.div>
+            );
+          })
         )}
       </div>
 
@@ -483,6 +562,9 @@ function ReplyModal({ message, onClose, onSave }: ReplyModalProps) {
   const [isLocked, setIsLocked] = useState(message.isReplyLocked);
   const [sendNotification, setSendNotification] = useState(!!message.email && message.allowNotification);
   const [sending, setSending] = useState(false);
+  
+  // 모달 드래그 시 닫힘 방지를 위한 상태
+  const [mouseDownTarget, setMouseDownTarget] = useState<EventTarget | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -500,15 +582,21 @@ function ReplyModal({ message, onClose, onSave }: ReplyModalProps) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      onClick={onClose}
+      onMouseDown={(e) => setMouseDownTarget(e.target)}
+      onClick={(e) => {
+        // 드래그 시 모달 닫힘 방지: mousedown과 click이 같은 요소에서 발생했을 때만 닫기
+        if (e.target === e.currentTarget && mouseDownTarget === e.currentTarget) {
+          onClose();
+        }
+      }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
     >
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg glass-card rounded-2xl p-6"
+        onMouseDown={(e) => e.stopPropagation()}
+        className="w-full max-w-lg glass-card rounded-2xl p-6 select-text"
       >
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-white">답변 작성</h2>
@@ -632,6 +720,9 @@ function EditMessageModal({ message, onClose, onSave }: EditMessageModalProps) {
   const [email, setEmail] = useState(message.email || '');
   const [msg, setMsg] = useState(message.message);
   const [isSecret, setIsSecret] = useState(message.isSecret);
+  
+  // 모달 드래그 시 닫힘 방지를 위한 상태
+  const [mouseDownTarget, setMouseDownTarget] = useState<EventTarget | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -644,15 +735,21 @@ function EditMessageModal({ message, onClose, onSave }: EditMessageModalProps) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      onClick={onClose}
+      onMouseDown={(e) => setMouseDownTarget(e.target)}
+      onClick={(e) => {
+        // 드래그 시 모달 닫힘 방지: mousedown과 click이 같은 요소에서 발생했을 때만 닫기
+        if (e.target === e.currentTarget && mouseDownTarget === e.currentTarget) {
+          onClose();
+        }
+      }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
     >
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg glass-card rounded-2xl p-6"
+        onMouseDown={(e) => e.stopPropagation()}
+        className="w-full max-w-lg glass-card rounded-2xl p-6 select-text"
       >
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-xl font-bold text-white">메시지 수정</h2>

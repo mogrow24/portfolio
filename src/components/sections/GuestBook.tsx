@@ -699,6 +699,13 @@ export default function GuestBook() {
     const updated = [newMessage, ...currentMessages];
     saveMessages(updated);
 
+    console.log('💾 로컬스토리지 저장 완료:', {
+      isSecret: newMessage.isSecret,
+      totalMessages: updated.length,
+      secretCount: updated.filter(m => m.isSecret).length,
+      newMessageId: newMessage.id
+    });
+
     // 비밀글이 아닌 경우에만 UI에 즉시 반영
     if (!form.isSecret) {
       setMessages(prev => [newMessage, ...prev]);
