@@ -17,11 +17,11 @@ export default function ProfileTab() {
     setProfile(getProfile());
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!profile) return;
     setSaving(true);
-    saveProfile(profile);
-    setTimeout(() => setSaving(false), 1000);
+    await saveProfile(profile);
+    setTimeout(() => setSaving(false), 500);
   };
 
   const addSkill = () => {

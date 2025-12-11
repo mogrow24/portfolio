@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, useInView } from 'framer-motion';
 import { ChevronDown, MessageCircle } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
-import { getInterviews, type InterviewData, DEFAULT_INTERVIEWS } from '@/lib/siteData';
+import { type InterviewData, DEFAULT_INTERVIEWS, STORAGE_KEYS, SITE_DATA_UPDATED_EVENT } from '@/lib/siteData';
 
 const content = {
   ko: {
@@ -73,8 +73,8 @@ function InterviewItem({
         }}
       >
         <div className="px-5 md:px-6 pb-5 md:pb-6 pt-0">
-          <div className="pl-11 border-l-2 border-[--accent-color]/30 ml-4">
-            <p className="text-sm md:text-base text-[--text-secondary] leading-loose pl-4 whitespace-pre-line">
+          <div className="pl-4 md:pl-5 border-l-2 border-[--accent-color]/30 ml-1.5 md:ml-2">
+            <p className="text-sm md:text-base text-[--text-secondary] leading-loose pl-2 md:pl-3 whitespace-pre-line">
               {answer}
             </p>
           </div>
@@ -92,10 +92,46 @@ export default function Interview() {
   const [isClient, setIsClient] = useState(false);
   const t = content[locale as keyof typeof content] || content.ko;
 
+  // 로컬 스토리지에서 직접 데이터 로드
+  const loadData = useCallback(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.INTERVIEWS);
+      if (stored) {
+        const data: InterviewData[] = JSON.parse(stored);
+        const sorted = [...data].sort((a, b) => (a.order_index ?? 999) - (b.order_index ?? 999));
+        setInterviews(sorted);
+      }
+    } catch (e) {
+      console.error('인터뷰 데이터 로드 실패:', e);
+    }
+  }, []);
+
   useEffect(() => {
     setIsClient(true);
-    setInterviews(getInterviews().sort((a, b) => a.order_index - b.order_index));
-  }, []);
+    loadData();
+
+    // 로컬 스토리지 변경 감지 (다른 탭에서 저장 시)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.INTERVIEWS || e.key === null) {
+        loadData();
+      }
+    };
+
+    // 커스텀 이벤트 감지 (같은 탭 어드민에서 저장 시 실시간 반영)
+    const handleSiteDataUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent<{ key: string; data: unknown }>;
+      if (customEvent.detail.key === STORAGE_KEYS.INTERVIEWS) {
+        loadData();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener(SITE_DATA_UPDATED_EVENT, handleSiteDataUpdate);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener(SITE_DATA_UPDATED_EVENT, handleSiteDataUpdate);
+    };
+  }, [loadData]);
 
   return (
     <section id="interview" className="py-20 md:py-28 relative">
@@ -103,12 +139,12 @@ export default function Interview() {
       <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[var(--accent-color)]/20 to-transparent" />
       
       <div ref={ref} className="section-container">
-        {/* 섹션 헤더 - 중앙 정렬 */}
+        {/* 섹션 헤더 - 좌측 정렬 */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.6 }}
-          className="text-center mb-12 md:mb-16"
+          className="mb-12 md:mb-16"
         >
           <span className="sub-title">{t.subtitle}</span>
           <h2 className="text-responsive-lg font-extrabold">{t.title}</h2>

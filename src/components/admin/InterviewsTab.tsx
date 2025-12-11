@@ -2,22 +2,24 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Save, Plus, Trash2, GripVertical, Edit3, X, MessageCircle } from 'lucide-react';
+import { Save, Plus, Trash2, GripVertical, Edit3, X, MessageCircle, Languages, Loader2 } from 'lucide-react';
 import { getInterviews, saveInterviews, type InterviewData, DEFAULT_INTERVIEWS } from '@/lib/siteData';
+import { translateKoToEn } from '@/lib/translate';
 
 export default function InterviewsTab() {
   const [interviews, setInterviews] = useState<InterviewData[]>(DEFAULT_INTERVIEWS);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [translatingId, setTranslatingId] = useState<string | null>(null);
 
   useEffect(() => {
     setInterviews(getInterviews().sort((a, b) => a.order_index - b.order_index));
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
-    saveInterviews(interviews);
-    setTimeout(() => setSaving(false), 1000);
+    await saveInterviews(interviews);
+    setTimeout(() => setSaving(false), 500);
   };
 
   const handleAdd = () => {
@@ -62,6 +64,36 @@ export default function InterviewsTab() {
     });
     
     setInterviews(newInterviews);
+  };
+
+  // 자동 번역 (한글 → 영문)
+  const handleAutoTranslate = async (id: string) => {
+    const item = interviews.find((i) => i.id === id);
+    if (!item) return;
+
+    setTranslatingId(id);
+    try {
+      const [questionResult, answerResult] = await Promise.all([
+        item.question_ko ? translateKoToEn(item.question_ko) : { success: true, translatedText: '' },
+        item.answer_ko ? translateKoToEn(item.answer_ko) : { success: true, translatedText: '' },
+      ]);
+
+      setInterviews(
+        interviews.map((i) =>
+          i.id === id
+            ? {
+                ...i,
+                question_en: questionResult.success ? questionResult.translatedText : i.question_en,
+                answer_en: answerResult.success ? answerResult.translatedText : i.answer_en,
+              }
+            : i
+        )
+      );
+    } catch (error) {
+      alert('번역 중 오류가 발생했습니다.');
+    } finally {
+      setTranslatingId(null);
+    }
   };
 
   return (
@@ -113,12 +145,26 @@ export default function InterviewsTab() {
                     <MessageCircle className="w-5 h-5 text-[--accent-color]" />
                     <span className="font-semibold text-white">인터뷰 #{index + 1} 편집</span>
                   </div>
-                  <button
-                    onClick={() => setEditingId(null)}
-                    className="p-2 rounded-lg text-[--text-secondary] hover:text-white hover:bg-[--bg-tertiary]"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleAutoTranslate(item.id)}
+                      disabled={translatingId === item.id}
+                      className="px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-400 text-sm flex items-center gap-1 hover:bg-blue-500/30 disabled:opacity-50"
+                    >
+                      {translatingId === item.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Languages className="w-3 h-3" />
+                      )}
+                      한→영 자동번역
+                    </button>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      className="p-2 rounded-lg text-[--text-secondary] hover:text-white hover:bg-[--bg-tertiary]"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -132,7 +178,9 @@ export default function InterviewsTab() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-[--text-secondary] mb-1">질문 (영문)</label>
+                    <label className="block text-sm text-[--text-secondary] mb-1">
+                      질문 (영문) <span className="text-blue-400 text-xs">← 자동번역</span>
+                    </label>
                     <input
                       type="text"
                       value={item.question_en}
@@ -153,7 +201,9 @@ export default function InterviewsTab() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-[--text-secondary] mb-1">답변 (영문)</label>
+                    <label className="block text-sm text-[--text-secondary] mb-1">
+                      답변 (영문) <span className="text-blue-400 text-xs">← 자동번역</span>
+                    </label>
                     <textarea
                       value={item.answer_en}
                       onChange={(e) => handleUpdate(item.id, 'answer_en', e.target.value)}
@@ -232,3 +282,4 @@ export default function InterviewsTab() {
     </div>
   );
 }
+

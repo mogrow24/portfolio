@@ -51,16 +51,30 @@ const LoadingBar = ({ progress }: { progress: number }) => (
   </div>
 );
 
-// 파티클 컴포넌트
+// 파티클 컴포넌트 (hydration 경고 방지)
 const Particles = ({ count = 30 }: { count?: number }) => {
-  const particles = Array.from({ length: count }, (_, i) => ({
-    id: i,
-    x: Math.random() * 100,
-    y: Math.random() * 100,
-    size: Math.random() * 4 + 1,
-    duration: Math.random() * 3 + 2,
-    delay: Math.random() * 2,
-  }));
+  const [particles, setParticles] = useState<Array<{
+    id: number;
+    x: number;
+    y: number;
+    size: number;
+    duration: number;
+    delay: number;
+  }>>([]);
+
+  // 클라이언트에서만 파티클 생성 (hydration 경고 방지)
+  useEffect(() => {
+    setParticles(Array.from({ length: count }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      size: Math.random() * 4 + 1,
+      duration: Math.random() * 3 + 2,
+      delay: Math.random() * 2,
+    })));
+  }, [count]);
+
+  if (particles.length === 0) return null;
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">

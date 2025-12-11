@@ -186,7 +186,7 @@ function SortableProjectItem({
             {project.desc.project_ko}
           </p>
           <div className="flex flex-wrap gap-1 mb-2">
-            {project.tags.slice(0, 3).map((tag) => (
+            {project.tags && Array.isArray(project.tags) && project.tags.slice(0, 3).map((tag, idx) => (
               <span
                 key={tag}
                 className="px-2 py-0.5 rounded text-xs bg-[--bg-tertiary] text-[--text-secondary]"
@@ -242,5 +242,9 @@ function SortableProjectItem({
     </motion.div>
   );
 }
+
+
+
+
 
 

@@ -26,6 +26,7 @@ import {
 import { useLocale } from '@/context/LocaleContext';
 import { getMessages, saveMessages, translateText, type GuestMessage, SITE_DATA_UPDATED_EVENT, STORAGE_KEYS } from '@/lib/siteData';
 import { api, isSupabaseAvailable, type GuestbookDB } from '@/lib/supabase';
+import { getVisitorId } from '@/lib/visitorTracker';
 
 // Supabase DB 타입을 GuestMessage 타입으로 변환
 function dbToGuestMessage(db: GuestbookDB): GuestMessage {
@@ -412,12 +413,12 @@ function QuestionCard({ message, locale, onToggleReply }: {
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className={`font-semibold text-sm ${message.isSecret ? 'text-yellow-400' : 'text-white'}`}>
-            {message.isSecret ? '익명' : message.name}
+            {message.name}
           </span>
           {message.isSecret && (
             <Lock className="w-3 h-3 text-yellow-400" />
           )}
-          {!message.isSecret && message.company && (
+          {message.company && (
             <span className="text-xs text-[--text-secondary]">· {message.company}</span>
           )}
           {message.reply && (
@@ -427,16 +428,24 @@ function QuestionCard({ message, locale, onToggleReply }: {
         <span className="text-[--text-secondary] text-[10px]">{formatDate(message.createdAt)}</span>
       </div>
 
-      {/* 질문 내용 */}
-      <div className="mb-3">
-        {message.isSecret ? (
-          <p className="text-xs text-yellow-400/70 italic">🔒 {t.secretQuestionBlur}</p>
-        ) : (
-          <p className="text-sm text-[--text-secondary] leading-relaxed line-clamp-3">
+      {/* 질문 내용 - 비밀글도 블러 처리하여 표시 */}
+      <div className="mb-3 relative">
+        <div className={`relative ${message.isSecret ? 'overflow-hidden' : ''}`}>
+          <p className={`text-sm text-[--text-secondary] leading-relaxed line-clamp-3 ${
+            message.isSecret ? 'filter blur-md select-none' : ''
+          }`}>
             {/* locale에 따라 번역된 메시지 또는 원본 표시 */}
             {locale === 'en' && message.message_en ? message.message_en : message.message}
           </p>
-        )}
+          {message.isSecret && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-transparent via-[--bg-secondary]/60 to-[--bg-secondary]/80 rounded-lg pointer-events-none">
+              <div className="flex items-center gap-2 text-xs text-yellow-400 font-semibold bg-[--bg-secondary]/90 px-3 py-1.5 rounded-full border border-yellow-400/30">
+                <Lock className="w-3.5 h-3.5" />
+                <span>{t.secretQuestionBlur}</span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 답변 영역 - 간소화 */}
@@ -518,12 +527,18 @@ export default function GuestBook() {
   const [useSupabase, setUseSupabase] = useState(false);
 
   // 데이터 로드 (Supabase 우선, 폴백: 로컬스토리지)
+  // 비밀글도 포함하여 모든 메시지 조회 (RLS 정책 수정 후 가능)
   const loadMessages = useCallback(async () => {
     setIsLoading(true);
     try {
       if (isSupabaseAvailable()) {
         const dbMessages = await api.getGuestbook();
-        // Supabase 연결 성공 - DB 데이터 사용
+        console.log('📥 게스트북 메시지 로드:', {
+          total: dbMessages.length,
+          secret: dbMessages.filter(m => m.is_secret).length,
+          public: dbMessages.filter(m => !m.is_secret).length,
+        });
+        // Supabase 연결 성공 - DB 데이터 사용 (비밀글 포함)
         setMessages(dbMessages.map(dbToGuestMessage));
         setUseSupabase(true);
         setIsLoading(false);
@@ -534,6 +549,10 @@ export default function GuestBook() {
     }
     // 폴백: 로컬스토리지
     const saved = getMessages();
+    console.log('💾 로컬스토리지에서 메시지 로드:', {
+      total: saved.length,
+      secret: saved.filter(m => m.isSecret).length,
+    });
     setMessages(saved);
     setUseSupabase(false);
     setIsLoading(false);
@@ -574,6 +593,7 @@ export default function GuestBook() {
   }, [loadMessages, useSupabase]);
 
   const filteredMessages = useMemo(() => {
+    // 비밀글도 프론트에 블러처리해서 표시
     let filtered = messages;
     if (filter === 'answered') {
       filtered = filtered.filter((msg) => msg.reply);
@@ -584,8 +604,15 @@ export default function GuestBook() {
   }, [messages, filter]);
 
   const handleSubmit = async (form: any) => {
+    console.log('📝 질문 제출 시작:', {
+      name: form.name,
+      isSecret: form.isSecret,
+      useSupabase,
+      isSupabaseAvailable: isSupabaseAvailable()
+    });
+
     const originalMessage = form.message.trim();
-    
+
     // 영문 버전인 경우 한글→영어 번역 시도
     let translatedMessage: string | undefined;
     if (locale === 'en') {
@@ -613,6 +640,7 @@ export default function GuestBook() {
             message_en: translatedMessage,
             allow_notification: !!form.email && form.allowNotification,
             is_secret: form.isSecret || false,
+            visitor_id: getVisitorId(), // 방문자 ID 추가
           }),
         });
 
@@ -644,31 +672,38 @@ export default function GuestBook() {
           throw new Error(errorMessage);
         }
 
-        // 비밀글 처리
-        if (form.isSecret || result.is_secret) {
-          // 비밀글은 저장 성공만 알리고 목록은 갱신 신호만 보냄
-          // (어드민에서만 조회 가능)
-          // 성공적으로 저장되었음을 확인하기 위해 이벤트 발생
-          console.log('비밀글 등록 성공:', result);
+        console.log('✅ Supabase 저장 성공:', {
+          isSecret: form.isSecret,
+          hasData: !!result.data,
+          result
+        });
 
-          // 어드민 페이지에만 갱신 신호 전송
-          window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
-            detail: { key: STORAGE_KEYS.MESSAGES }
-          }));
+        // 어드민 페이지 갱신 이벤트 발생 (비밀글/공개글 모두)
+        window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
+          detail: { key: STORAGE_KEYS.MESSAGES }
+        }));
 
-          // 비밀글 등록 성공 - 정상적으로 완료되었으므로 정상 반환
-          // handleSubmit의 success 상태가 표시됨
-          return;
-        }
-
-        // 공개글은 반환된 데이터를 바로 반영
+        // 비밀글/공개글 모두 데이터 반환받아 프론트 화면에 표시
         if (result.data) {
           const newMsg = dbToGuestMessage(result.data as GuestbookDB);
+          console.log('✅ 새 메시지 추가:', {
+            id: newMsg.id,
+            name: newMsg.name,
+            isSecret: newMsg.isSecret,
+            message: newMsg.message.substring(0, 50) + '...'
+          });
           setMessages(prev => [newMsg, ...prev]);
-          window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
-            detail: { key: STORAGE_KEYS.MESSAGES, data: newMsg }
-          }));
+          
+          // 추가 안전장치: 최신 데이터 다시 로드하여 확실히 반영
+          setTimeout(async () => {
+            await loadMessages();
+          }, 500);
+        } else {
+          // 데이터가 없는 경우 - 최신 데이터 다시 로드
+          console.warn('저장 성공했으나 데이터가 반환되지 않음, 최신 데이터 다시 로드:', result);
+          await loadMessages();
         }
+
         return;
       } catch (error: any) {
         console.warn('Supabase 저장 실패, 로컬스토리지로 폴백:', error);
@@ -703,18 +738,17 @@ export default function GuestBook() {
       isSecret: newMessage.isSecret,
       totalMessages: updated.length,
       secretCount: updated.filter(m => m.isSecret).length,
-      newMessageId: newMessage.id
+      newMessageId: newMessage.id,
+      allMessages: updated.map(m => ({ id: m.id, name: m.name, isSecret: m.isSecret }))
     });
-
-    // 비밀글이 아닌 경우에만 UI에 즉시 반영
-    if (!form.isSecret) {
-      setMessages(prev => [newMessage, ...prev]);
-    }
 
     // 이벤트 발생 (어드민 페이지 갱신용)
     window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
-      detail: { key: STORAGE_KEYS.MESSAGES, data: newMessage }
+      detail: { key: STORAGE_KEYS.MESSAGES }
     }));
+
+    // 프론트 화면에 즉시 반영 (비밀글도 블러처리되어 표시됨)
+    setMessages(prev => [newMessage, ...prev]);
   };
 
   if (!isClient) {

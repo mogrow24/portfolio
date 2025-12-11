@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, useInView } from 'framer-motion';
 import { 
   Target, 
@@ -14,7 +14,7 @@ import {
   type LucideIcon
 } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
-import { getCompetencies, type CompetencyData, DEFAULT_COMPETENCIES } from '@/lib/siteData';
+import { type CompetencyData, DEFAULT_COMPETENCIES, STORAGE_KEYS, SITE_DATA_UPDATED_EVENT } from '@/lib/siteData';
 
 // 아이콘 매핑
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -39,10 +39,45 @@ export default function About() {
   const [competencies, setCompetencies] = useState<CompetencyData[]>(DEFAULT_COMPETENCIES);
   const [isClient, setIsClient] = useState(false);
 
+  // 로컬 스토리지에서 직접 데이터 로드
+  const loadData = useCallback(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.COMPETENCIES);
+      if (stored) {
+        const data: CompetencyData[] = JSON.parse(stored);
+        setCompetencies(data);
+      }
+    } catch (e) {
+      console.error('역량 데이터 로드 실패:', e);
+    }
+  }, []);
+
   useEffect(() => {
     setIsClient(true);
-    setCompetencies(getCompetencies());
-  }, []);
+    loadData();
+
+    // 로컬 스토리지 변경 감지 (다른 탭에서 저장 시)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.COMPETENCIES || e.key === null) {
+        loadData();
+      }
+    };
+
+    // 커스텀 이벤트 감지 (같은 탭 어드민에서 저장 시 실시간 반영)
+    const handleSiteDataUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent<{ key: string; data: unknown }>;
+      if (customEvent.detail.key === STORAGE_KEYS.COMPETENCIES) {
+        loadData();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener(SITE_DATA_UPDATED_EVENT, handleSiteDataUpdate);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener(SITE_DATA_UPDATED_EVENT, handleSiteDataUpdate);
+    };
+  }, [loadData]);
 
   const content = locale === 'en' ? {
     subtitle: 'Competency',

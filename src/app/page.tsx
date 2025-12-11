@@ -4,6 +4,7 @@ import PageWrapper from '@/components/layout/PageWrapper';
 import Hero from '@/components/sections/Hero';
 import About from '@/components/sections/About';
 import Projects from '@/components/sections/Projects';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import Experience from '@/components/sections/Experience';
 import Interview from '@/components/sections/Interview';
 import GuestBook from '@/components/sections/GuestBook';
@@ -16,7 +17,9 @@ export default function Home() {
         <Header />
         <Hero />
         <About />
+        <ErrorBoundary>
         <Projects />
+      </ErrorBoundary>
         <Experience />
         <Interview />
         <GuestBook />

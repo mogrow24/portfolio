@@ -4,11 +4,13 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Save, Plus, Edit3, Trash2, X, Eye, EyeOff, FolderOpen, GripVertical, ChevronDown, ChevronUp, 
-  Languages, Loader2, Image as ImageIcon, Layers, Monitor, FileText, Sparkles, Tag
+  Languages, Loader2, Image as ImageIcon, Layers, Monitor, FileText, Sparkles, Tag, ArrowUp, ArrowDown, RefreshCw, Download, Upload
 } from 'lucide-react';
-import { getProjects, saveProjects, getCategories, saveCategories, type ProjectData, type GalleryImage, type CategoryData, DEFAULT_CATEGORIES } from '@/lib/siteData';
+import { getProjects, saveProjects, getCategories, saveCategories, type ProjectData, type GalleryImage, type CategoryData, DEFAULT_CATEGORIES, isCloudSyncEnabled, STORAGE_KEYS, SITE_DATA_UPDATED_EVENT } from '@/lib/siteData';
 import { translateKoToEn, translateArrayKoToEn } from '@/lib/translate';
+import { api } from '@/lib/supabase';
 import ImageUploader from './ImageUploader';
+import VideoUploader from './VideoUploader';
 
 // 아이콘 맵핑
 const iconMap: { [key: string]: React.ComponentType<{ className?: string }> } = {
@@ -32,14 +34,113 @@ export default function ProjectsTab() {
     setCategories(getCategories().sort((a, b) => a.order_index - b.order_index));
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (projects.length === 0) {
+      alert('프로젝트가 없습니다. 최소 1개 이상의 프로젝트가 필요합니다.');
+      return;
+    }
+    
     setSaving(true);
-    saveProjects(projects);
-    saveCategories(categories);
-    setTimeout(() => setSaving(false), 1000);
+    
+    try {
+      // order_index 재할당 후 저장
+      const reorderedProjects = projects.map((proj, index) => ({
+        ...proj,
+        order_index: index,
+      }));
+      
+      console.log('💾 저장 시작:', reorderedProjects.length, '개 프로젝트');
+      
+      // 저장 실행 (await로 완료 대기)
+      await saveProjects(reorderedProjects);
+      await saveCategories(categories);
+      
+      // 저장 후 즉시 확인 (여러 번 확인하여 확실하게)
+      let savedProjects = getProjects();
+      let retryCount = 0;
+      const maxRetries = 10;
+      
+      while (savedProjects.length !== reorderedProjects.length && retryCount < maxRetries) {
+        console.warn(`⚠️ 저장 검증 실패 (시도 ${retryCount + 1}/${maxRetries}): 저장한 ${reorderedProjects.length}개, 확인된 ${savedProjects.length}개`);
+        await new Promise(resolve => setTimeout(resolve, 100)); // 100ms 대기
+        savedProjects = getProjects();
+        retryCount++;
+      }
+      
+      console.log('✅ 저장 후 확인:', savedProjects.length, '개 프로젝트');
+      
+      if (savedProjects.length === 0) {
+        console.error('❌ 저장 실패 - 프로젝트가 없음!');
+        alert('저장에 실패했습니다. 콘솔을 확인하세요.');
+        setSaving(false);
+        return;
+      }
+      
+      if (savedProjects.length !== reorderedProjects.length) {
+        console.error(`❌ 저장 불일치: 저장한 ${reorderedProjects.length}개, 확인된 ${savedProjects.length}개`);
+        // 저장 불일치 시 다시 저장 시도
+        console.log('🔄 저장 불일치 감지 - 다시 저장 시도...');
+        await saveProjects(reorderedProjects);
+        await new Promise(resolve => setTimeout(resolve, 200));
+        savedProjects = getProjects();
+        if (savedProjects.length === reorderedProjects.length) {
+          console.log('✅ 재저장 성공!');
+        } else {
+          alert(`저장 불일치가 발생했습니다. 저장한 ${reorderedProjects.length}개 중 ${savedProjects.length}개만 확인되었습니다.`);
+        }
+      }
+      
+      // 상태 업데이트 (저장된 데이터로)
+      setProjects([...savedProjects].sort((a, b) => a.order_index - b.order_index));
+      
+      console.log(`✅ 전체 저장 완료: ${savedProjects.length}개 프로젝트`);
+      
+      // 강제 새로고침 이벤트 (여러 번 발생)
+      const triggerEvent = () => {
+        window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
+          detail: { key: STORAGE_KEYS.PROJECTS, data: savedProjects }
+        }));
+      };
+      
+      triggerEvent();
+      setTimeout(triggerEvent, 100);
+      setTimeout(triggerEvent, 300);
+      setTimeout(triggerEvent, 500);
+      setTimeout(triggerEvent, 1000);
+      
+    } catch (error) {
+      console.error('❌ 저장 실패:', error);
+      alert('저장에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setTimeout(() => setSaving(false), 500);
+    }
+  };
+
+  // 순서 이동 함수 (저장 버튼을 눌러야 저장됨)
+  const handleMoveUp = (index: number) => {
+    if (index === 0) return;
+    
+    const newProjects = [...projects];
+    [newProjects[index - 1], newProjects[index]] = [newProjects[index], newProjects[index - 1]];
+    const reordered = newProjects.map((proj, i) => ({ ...proj, order_index: i }));
+    
+    // 상태만 업데이트 (저장은 저장 버튼을 눌러야 함)
+    setProjects(reordered);
+  };
+
+  const handleMoveDown = (index: number) => {
+    if (index === projects.length - 1) return;
+    
+    const newProjects = [...projects];
+    [newProjects[index], newProjects[index + 1]] = [newProjects[index + 1], newProjects[index]];
+    const reordered = newProjects.map((proj, i) => ({ ...proj, order_index: i }));
+    
+    // 상태만 업데이트 (저장은 저장 버튼을 눌러야 함)
+    setProjects(reordered);
   };
 
   const handleAddNew = () => {
+    // 새 프로젝트는 맨 위에 추가 (order_index: 0)
     const newProject: ProjectData = {
       id: `proj-${Date.now()}`,
       title_ko: '',
@@ -62,8 +163,9 @@ export default function ProjectsTab() {
       outcome_ko: [''],
       outcome_en: [''],
       gallery: [],
+      video: '',
       is_visible: true,
-      order_index: projects.length,
+      order_index: 0, // 새 항목은 맨 위
       category: categories[0]?.key || 'exhibition',
     };
     setEditingProject(newProject);
@@ -77,34 +179,118 @@ export default function ProjectsTab() {
 
   const handleDelete = (id: string) => {
     if (!confirm('정말 삭제하시겠습니까?')) return;
-    setProjects(projects.filter(p => p.id !== id));
+    
+    const updatedProjects = projects.filter(p => p.id !== id);
+    
+    // order_index 재할당
+    const reorderedProjects = updatedProjects.map((proj, index) => ({
+      ...proj,
+      order_index: index,
+    }));
+    
+    // 상태만 업데이트 (저장은 저장 버튼을 눌러야 함)
+    setProjects(reorderedProjects);
   };
 
   const handleToggleVisibility = (id: string) => {
-    setProjects(projects.map(p => p.id === id ? { ...p, is_visible: !p.is_visible } : p));
+    // 여러 개를 동시에 숨길 수 있도록 상태만 업데이트
+    const updatedProjects = projects.map(p => 
+      p.id === id ? { ...p, is_visible: !p.is_visible } : p
+    );
+    
+    // 상태만 업데이트 (저장은 저장 버튼을 눌러야 함)
+    setProjects(updatedProjects);
   };
 
-  const handleSaveProject = () => {
+  const handleSaveProject = async () => {
     if (!editingProject) return;
     
-    const cleaned = {
-      ...editingProject,
-      role_ko: editingProject.role_ko.filter(r => r.trim()),
-      role_en: editingProject.role_en.filter(r => r.trim()),
-      outcome_ko: editingProject.outcome_ko.filter(o => o.trim()),
-      outcome_en: editingProject.outcome_en.filter(o => o.trim()),
-      tags: editingProject.tags.filter(t => t.trim()),
-    };
-
-    const exists = projects.find(p => p.id === cleaned.id);
-    if (exists) {
-      setProjects(projects.map(p => p.id === cleaned.id ? cleaned : p));
-    } else {
-      setProjects([...projects, cleaned]);
-    }
+    setSaving(true);
     
-    setIsModalOpen(false);
-    setEditingProject(null);
+    try {
+      const cleaned = {
+        ...editingProject,
+        role_ko: editingProject.role_ko.filter(r => r.trim()),
+        role_en: editingProject.role_en.filter(r => r.trim()),
+        outcome_ko: editingProject.outcome_ko.filter(o => o.trim()),
+        outcome_en: editingProject.outcome_en.filter(o => o.trim()),
+        tags: editingProject.tags.filter(t => t.trim()),
+      };
+
+      let updatedProjects: ProjectData[];
+      const exists = projects.find(p => p.id === cleaned.id);
+      if (exists) {
+        // 기존 항목 수정
+        updatedProjects = projects.map(p => p.id === cleaned.id ? cleaned : p);
+      } else {
+        // 새 항목은 맨 위에 추가 (기존 항목들의 order_index를 1씩 증가)
+        const reordered = projects.map(proj => ({
+          ...proj,
+          order_index: proj.order_index + 1,
+        }));
+        updatedProjects = [{ ...cleaned, order_index: 0 }, ...reordered];
+      }
+
+      // order_index 재할당 후 저장
+      const reorderedProjects = updatedProjects.map((proj, index) => ({
+        ...proj,
+        order_index: index,
+      }));
+
+      // 즉시 저장 (에러 발생 시 throw)
+      await saveProjects(reorderedProjects);
+      await saveCategories(categories);
+      
+      // 저장 확인 - 로컬 스토리지에서 다시 읽어서 검증
+      const savedProjects = getProjects();
+      const savedCount = savedProjects.length;
+      const expectedCount = reorderedProjects.length;
+      
+      if (savedCount !== expectedCount) {
+        console.error(`⚠️ 저장 불일치: 예상 ${expectedCount}개, 실제 ${savedCount}개`);
+        // 강제로 다시 저장 시도
+        await saveProjects(reorderedProjects);
+      }
+      
+      // 상태 업데이트 (저장 후 즉시)
+      setProjects(reorderedProjects);
+      
+      // 성공 알림
+      console.log(`✅ 프로젝트 저장 완료: ${reorderedProjects.length}개`);
+      
+      setIsModalOpen(false);
+      setEditingProject(null);
+      
+      // 프론트엔드 강제 새로고침 이벤트 발생 (즉시 + 지연 보장)
+      // saveToLocalStorage에서 이미 이벤트를 발생시키지만, 추가 보장을 위해 다시 발생
+      const triggerUpdate = () => {
+        const event = new CustomEvent(SITE_DATA_UPDATED_EVENT, {
+          detail: { key: STORAGE_KEYS.PROJECTS, data: reorderedProjects }
+        });
+        window.dispatchEvent(event);
+        console.log('📤 이벤트 발생:', SITE_DATA_UPDATED_EVENT, `${reorderedProjects.length}개 프로젝트`);
+      };
+      
+      // 즉시 발생
+      triggerUpdate();
+      
+      // 추가 보장: 약간의 지연 후 다시 발생
+      setTimeout(() => {
+        console.log('📤 지연 이벤트 발생 (100ms)');
+        triggerUpdate();
+      }, 100);
+      
+      setTimeout(() => {
+        console.log('📤 최종 이벤트 발생 (500ms)');
+        triggerUpdate();
+      }, 500);
+      
+    } catch (error) {
+      console.error('❌ 프로젝트 저장 실패:', error);
+      alert('저장에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // 카테고리 관리 함수
@@ -137,6 +323,393 @@ export default function ProjectsTab() {
     
     if (!confirm('정말 삭제하시겠습니까?')) return;
     setCategories(categories.filter(c => c.id !== id));
+  };
+
+  // 데이터 복구 함수들 (강화 버전 - 모든 가능한 곳에서 찾기)
+  const handleRecoverData = () => {
+    const allFoundProjects: ProjectData[] = [];
+    const allSources: string[] = [];
+    
+    // 1. 현재 저장된 데이터
+    const current = localStorage.getItem(STORAGE_KEYS.PROJECTS);
+    if (current) {
+      try {
+        const projects = JSON.parse(current);
+        if (Array.isArray(projects) && projects.length > 0) {
+          allFoundProjects.push(...projects);
+          allSources.push(`현재 저장: ${projects.length}개`);
+        }
+      } catch (e) {
+        console.error('현재 데이터 파싱 실패:', e);
+      }
+    }
+    
+    // 2. 모든 가능한 키에서 찾기
+    const allKeys = Object.keys(localStorage);
+    const relevantKeys = allKeys.filter(key => 
+      key.includes('project') || 
+      key.includes('backup') ||
+      key.startsWith('site_')
+    );
+    
+    relevantKeys.forEach(key => {
+      try {
+        const data = localStorage.getItem(key);
+        if (data) {
+          const parsed = JSON.parse(data);
+          
+          // 배열인 경우
+          if (Array.isArray(parsed)) {
+            parsed.forEach((p: any) => {
+              if (p && (p.id || p.title_ko || p.title_en || p.title)) {
+                const exists = allFoundProjects.find(existing => 
+                  existing.id === p.id || 
+                  (existing.title_ko && p.title_ko && existing.title_ko === p.title_ko) ||
+                  (existing.title_en && p.title_en && existing.title_en === p.title_en)
+                );
+                if (!exists) {
+                  allFoundProjects.push(p);
+                  if (!allSources.includes(key)) {
+                    allSources.push(`${key}: ${parsed.length}개`);
+                  }
+                } else {
+                  // 중복이지만 내용이 더 많은지 확인하여 교체
+                  const existingIndex = allFoundProjects.findIndex(existing => 
+                    existing.id === p.id || 
+                    (existing.title_ko && p.title_ko && existing.title_ko === p.title_ko) ||
+                    (existing.title_en && p.title_en && existing.title_en === p.title_en)
+                  );
+                  
+                  if (existingIndex !== -1) {
+                    const existing = allFoundProjects[existingIndex];
+                    const existingHasContent = (existing.project_ko || existing.project_en) && 
+                                              (Array.isArray(existing.role_ko) && existing.role_ko.length > 0 || 
+                                               Array.isArray(existing.role_en) && existing.role_en.length > 0);
+                    const newHasContent = (p.project_ko || p.project_en) && 
+                                         (Array.isArray(p.role_ko) && p.role_ko.length > 0 || 
+                                          Array.isArray(p.role_en) && p.role_en.length > 0);
+                    
+                    // 새 데이터가 내용이 있고 기존 것이 없으면 교체
+                    if (newHasContent && !existingHasContent) {
+                      allFoundProjects[existingIndex] = p;
+                      console.log(`✅ ${p.title_ko || p.title_en} 교체: 내용이 있는 버전으로`);
+                    } else if (newHasContent && existingHasContent) {
+                      // 둘 다 내용이 있으면 더 많은 내용을 가진 것으로 교체
+                      const existingScore = (
+                        (existing.project_ko ? 1 : 0) + (existing.project_en ? 1 : 0) +
+                        (Array.isArray(existing.role_ko) ? existing.role_ko.length : 0) +
+                        (Array.isArray(existing.role_en) ? existing.role_en.length : 0) +
+                        (Array.isArray(existing.gallery) ? existing.gallery.length : 0)
+                      );
+                      const newScore = (
+                        (p.project_ko ? 1 : 0) + (p.project_en ? 1 : 0) +
+                        (Array.isArray(p.role_ko) ? p.role_ko.length : 0) +
+                        (Array.isArray(p.role_en) ? p.role_en.length : 0) +
+                        (Array.isArray(p.gallery) ? p.gallery.length : 0)
+                      );
+                      if (newScore > existingScore) {
+                        allFoundProjects[existingIndex] = p;
+                        console.log(`✅ ${p.title_ko || p.title_en} 교체: 더 많은 내용`);
+                      }
+                    }
+                  }
+                }
+              }
+            });
+          }
+          // 중첩된 projects 속성이 있는 경우
+          else if (parsed.projects && Array.isArray(parsed.projects)) {
+            parsed.projects.forEach((p: any) => {
+              if (p && (p.id || p.title_ko || p.title_en || p.title)) {
+                const exists = allFoundProjects.find(existing => 
+                  existing.id === p.id || 
+                  (existing.title_ko && p.title_ko && existing.title_ko === p.title_ko) ||
+                  (existing.title_en && p.title_en && existing.title_en === p.title_en)
+                );
+                if (!exists) {
+                  allFoundProjects.push(p);
+                  if (!allSources.includes(key)) {
+                    allSources.push(`${key}: ${parsed.projects.length}개 (중첩)`);
+                  }
+                } else {
+                  // 중복이지만 내용이 더 많은지 확인하여 교체
+                  const existingIndex = allFoundProjects.findIndex(existing => 
+                    existing.id === p.id || 
+                    (existing.title_ko && p.title_ko && existing.title_ko === p.title_ko) ||
+                    (existing.title_en && p.title_en && existing.title_en === p.title_en)
+                  );
+                  
+                  if (existingIndex !== -1) {
+                    const existing = allFoundProjects[existingIndex];
+                    const existingHasContent = (existing.project_ko || existing.project_en) && 
+                                              (Array.isArray(existing.role_ko) && existing.role_ko.length > 0 || 
+                                               Array.isArray(existing.role_en) && existing.role_en.length > 0);
+                    const newHasContent = (p.project_ko || p.project_en) && 
+                                         (Array.isArray(p.role_ko) && p.role_ko.length > 0 || 
+                                          Array.isArray(p.role_en) && p.role_en.length > 0);
+                    
+                    // 새 데이터가 내용이 있고 기존 것이 없으면 교체
+                    if (newHasContent && !existingHasContent) {
+                      allFoundProjects[existingIndex] = p;
+                      console.log(`✅ ${p.title_ko || p.title_en} 교체: 내용이 있는 버전으로`);
+                    } else if (newHasContent && existingHasContent) {
+                      // 둘 다 내용이 있으면 더 많은 내용을 가진 것으로 교체
+                      const existingScore = (
+                        (existing.project_ko ? 1 : 0) + (existing.project_en ? 1 : 0) +
+                        (Array.isArray(existing.role_ko) ? existing.role_ko.length : 0) +
+                        (Array.isArray(existing.role_en) ? existing.role_en.length : 0) +
+                        (Array.isArray(existing.gallery) ? existing.gallery.length : 0)
+                      );
+                      const newScore = (
+                        (p.project_ko ? 1 : 0) + (p.project_en ? 1 : 0) +
+                        (Array.isArray(p.role_ko) ? p.role_ko.length : 0) +
+                        (Array.isArray(p.role_en) ? p.role_en.length : 0) +
+                        (Array.isArray(p.gallery) ? p.gallery.length : 0)
+                      );
+                      if (newScore > existingScore) {
+                        allFoundProjects[existingIndex] = p;
+                        console.log(`✅ ${p.title_ko || p.title_en} 교체: 더 많은 내용`);
+                      }
+                    }
+                  }
+                }
+              }
+            });
+          }
+        }
+      } catch (e) {
+        // 파싱 실패는 무시
+      }
+    });
+    
+    // 3. 결과 출력
+    console.log('🔍 발견된 소스:', allSources);
+    console.log('📊 총 발견된 프로젝트:', allFoundProjects.length, '개');
+    console.table(allFoundProjects.map(p => ({
+      ID: p.id,
+      제목: p.title_ko || p.title_en || '없음',
+      카테고리: p.category || '없음'
+    })));
+    
+    if (allFoundProjects.length > 0) {
+      // 가장 완전한 데이터 선택 (내용이 가장 많은 것)
+      const projectsWithContent = allFoundProjects.map(p => ({
+        project: p,
+        contentScore: (
+          (p.project_ko ? 1 : 0) +
+          (p.project_en ? 1 : 0) +
+          (Array.isArray(p.role_ko) && p.role_ko.length > 0 ? 1 : 0) +
+          (Array.isArray(p.role_en) && p.role_en.length > 0 ? 1 : 0) +
+          (Array.isArray(p.outcome_ko) && p.outcome_ko.length > 0 ? 1 : 0) +
+          (Array.isArray(p.outcome_en) && p.outcome_en.length > 0 ? 1 : 0) +
+          (Array.isArray(p.gallery) && p.gallery.length > 0 ? 2 : 0) +
+          (p.problem_ko || p.problem_en ? 1 : 0) +
+          (p.solution_ko || p.solution_en ? 1 : 0)
+        )
+      }));
+      
+      // 내용 점수가 높은 것부터 정렬
+      projectsWithContent.sort((a, b) => b.contentScore - a.contentScore);
+      
+      // 중복 제거 (같은 ID나 제목이 있으면 내용이 더 많은 것만 남김)
+      const uniqueProjects: ProjectData[] = [];
+      const seenIds = new Set<string>();
+      const seenTitles = new Set<string>();
+      
+      projectsWithContent.forEach(({ project }) => {
+        const id = project.id || '';
+        const title = project.title_ko || project.title_en || '';
+        
+        if (!id && !title) return;
+        
+        const key = id || title;
+        if (seenIds.has(id) || seenTitles.has(title)) {
+          // 중복이지만 내용이 더 많은지 확인
+          const existing = uniqueProjects.find(p => 
+            (id && p.id === id) || (title && (p.title_ko === title || p.title_en === title))
+          );
+          
+          if (existing) {
+            const existingScore = (
+              (existing.project_ko ? 1 : 0) +
+              (existing.project_en ? 1 : 0) +
+              (Array.isArray(existing.role_ko) && existing.role_ko.length > 0 ? 1 : 0) +
+              (Array.isArray(existing.gallery) && existing.gallery.length > 0 ? 2 : 0)
+            );
+            
+            const newScore = (
+              (project.project_ko ? 1 : 0) +
+              (project.project_en ? 1 : 0) +
+              (Array.isArray(project.role_ko) && project.role_ko.length > 0 ? 1 : 0) +
+              (Array.isArray(project.gallery) && project.gallery.length > 0 ? 2 : 0)
+            );
+            
+            if (newScore > existingScore) {
+              // 기존 것을 제거하고 새로운 것으로 교체
+              const index = uniqueProjects.indexOf(existing);
+              if (index !== -1) {
+                uniqueProjects[index] = project;
+              }
+            }
+          }
+        } else {
+          uniqueProjects.push(project);
+          if (id) seenIds.add(id);
+          if (title) seenTitles.add(title);
+        }
+      });
+      
+      // order_index 정리
+      const sortedProjects = uniqueProjects.map((p, index) => ({
+        ...p,
+        order_index: typeof p.order_index === 'number' ? p.order_index : index,
+        id: p.id || `proj-${Date.now()}-${index}`
+      })).sort((a, b) => a.order_index - b.order_index);
+      
+      // 내용 확인
+      const projectsWithFullContent = sortedProjects.filter(p => 
+        (p.project_ko || p.project_en) && 
+        (Array.isArray(p.role_ko) && p.role_ko.length > 0 || Array.isArray(p.role_en) && p.role_en.length > 0)
+      );
+      
+      const message = `총 ${sortedProjects.length}개 프로젝트를 찾았습니다.\n\n` +
+        `내용이 있는 프로젝트: ${projectsWithFullContent.length}개\n` +
+        `빈 프로젝트: ${sortedProjects.length - projectsWithFullContent.length}개\n\n` +
+        `발견된 소스:\n${allSources.slice(0, 5).join('\n')}${allSources.length > 5 ? `\n... 외 ${allSources.length - 5}개` : ''}\n\n` +
+        `복구하시겠습니까?`;
+      
+      console.log('📊 발견된 프로젝트 상세:', sortedProjects);
+      
+      if (confirm(message)) {
+        // 현재 데이터 백업
+        if (current) {
+          const backupKey = `site_projects_backup_before_recover_${Date.now()}`;
+          localStorage.setItem(backupKey, current);
+          console.log(`✅ 현재 데이터 백업: ${backupKey}`);
+        }
+        
+        // 복구
+        setProjects(sortedProjects);
+        saveProjects(sortedProjects);
+        
+        // 이벤트 발생
+        window.dispatchEvent(new CustomEvent(SITE_DATA_UPDATED_EVENT, {
+          detail: { key: STORAGE_KEYS.PROJECTS, data: sortedProjects }
+        }));
+        
+        alert(
+          `✅ ${sortedProjects.length}개 프로젝트 복구 완료!\n\n` +
+          `내용이 있는 프로젝트: ${projectsWithFullContent.length}개\n` +
+          `빈 프로젝트: ${sortedProjects.length - projectsWithFullContent.length}개\n\n` +
+          `페이지를 새로고침하세요.`
+        );
+        return;
+      }
+    }
+    
+    // 4. 긴급 복구 스크립트 안내
+    alert(
+      '❌ 자동 복구 실패\n\n' +
+      '브라우저 콘솔에서 다음을 실행하세요:\n\n' +
+      '1. F12 키를 눌러 개발자 도구 열기\n' +
+      '2. Console 탭 선택\n' +
+      '3. 복구 스크립트 실행 (아래 코드 붙여넣기)\n\n' +
+      '또는 어드민 페이지를 새로고침하고 다시 시도하세요.'
+    );
+    
+    // 콘솔에 긴급 복구 코드 출력
+    console.log(`
+🔴 긴급 복구 코드 (콘솔에 복사해서 실행하세요):
+
+(function() {
+  const STORAGE_KEY = 'site_projects';
+  const allFound = [];
+  Object.keys(localStorage).forEach(key => {
+    try {
+      const data = JSON.parse(localStorage.getItem(key) || '{}');
+      if (Array.isArray(data)) {
+        allFound.push(...data);
+      } else if (data.projects) {
+        allFound.push(...data.projects);
+      }
+    } catch(e) {}
+  });
+  
+  const unique = [];
+  allFound.forEach(p => {
+    if (p && (p.id || p.title_ko || p.title_en) && !unique.find(u => u.id === p.id)) {
+      unique.push(p);
+    }
+  });
+  
+  console.log('찾은 프로젝트:', unique.length, '개');
+  console.table(unique);
+  
+  if (unique.length > 0 && confirm(unique.length + '개 복구?')) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(unique));
+    location.reload();
+  }
+})();
+    `);
+  };
+
+  const handleBackupData = () => {
+    const dataToBackup = {
+      timestamp: new Date().toISOString(),
+      projects: projects,
+      categories: categories,
+      version: '1.0'
+    };
+    
+    const backupKey = `site_projects_backup_${Date.now()}`;
+    localStorage.setItem(backupKey, JSON.stringify(projects));
+    localStorage.setItem(`site_categories_backup_${Date.now()}`, JSON.stringify(categories));
+    
+    // 다운로드 가능한 파일로도 저장
+    const blob = new Blob([JSON.stringify(dataToBackup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `portfolio-backup-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    alert(`✅ 백업 완료!\n- 로컬 스토리지: ${backupKey}\n- 파일 다운로드: portfolio-backup-*.json`);
+  };
+
+  const handleRestoreFromFile = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const data = JSON.parse(event.target?.result as string);
+          if (data.projects && Array.isArray(data.projects)) {
+            if (confirm(`${data.projects.length}개 프로젝트를 찾았습니다. 복구하시겠습니까?`)) {
+              setProjects(data.projects.sort((a: ProjectData, b: ProjectData) => a.order_index - b.order_index));
+              saveProjects(data.projects);
+              if (data.categories) {
+                setCategories(data.categories);
+                saveCategories(data.categories);
+              }
+              alert(`✅ ${data.projects.length}개 프로젝트 복구 완료!`);
+            }
+          } else {
+            alert('❌ 잘못된 파일 형식입니다.');
+          }
+        } catch (error) {
+          console.error('파일 복구 실패:', error);
+          alert('❌ 파일 읽기 실패');
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
   };
 
   // 카테고리 라벨 가져오기
@@ -179,6 +752,36 @@ export default function ProjectsTab() {
           >
             <Save className="w-4 h-4" />
             {saving ? '저장 중...' : '저장'}
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={handleRecoverData}
+            className="px-4 py-2 rounded-lg bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 flex items-center gap-2 hover:bg-yellow-500/30"
+            title="저장된 데이터 복구"
+          >
+            <RefreshCw className="w-4 h-4" />
+            데이터 복구
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={handleBackupData}
+            className="px-4 py-2 rounded-lg bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center gap-2 hover:bg-blue-500/30"
+            title="현재 데이터 백업"
+          >
+            <Download className="w-4 h-4" />
+            백업
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={handleRestoreFromFile}
+            className="px-4 py-2 rounded-lg bg-green-500/20 text-green-400 border border-green-500/30 flex items-center gap-2 hover:bg-green-500/30"
+            title="백업 파일에서 복구"
+          >
+            <Upload className="w-4 h-4" />
+            파일 복구
           </motion.button>
         </div>
       </div>
@@ -276,11 +879,29 @@ export default function ProjectsTab() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.05 }}
+            layout
             className={`glass-card rounded-xl p-4 ${!project.is_visible ? 'opacity-60' : ''}`}
           >
             <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 pt-1 text-[--text-secondary] cursor-grab">
-                <GripVertical className="w-5 h-5" />
+              {/* 순서 조정 버튼 */}
+              <div className="flex-shrink-0 flex flex-col gap-1 pt-1">
+                <button
+                  onClick={() => handleMoveUp(index)}
+                  disabled={index === 0}
+                  className={`p-1 rounded transition-colors ${index === 0 ? 'text-[--text-secondary]/30 cursor-not-allowed' : 'text-[--text-secondary] hover:text-[--accent-color] hover:bg-[--accent-color]/10'}`}
+                  title="위로 이동"
+                >
+                  <ChevronUp className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-[--text-secondary] text-center">{index + 1}</span>
+                <button
+                  onClick={() => handleMoveDown(index)}
+                  disabled={index === projects.length - 1}
+                  className={`p-1 rounded transition-colors ${index === projects.length - 1 ? 'text-[--text-secondary]/30 cursor-not-allowed' : 'text-[--text-secondary] hover:text-[--accent-color] hover:bg-[--accent-color]/10'}`}
+                  title="아래로 이동"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </button>
               </div>
               <div className="flex-shrink-0 w-20 h-20 rounded-lg bg-[--bg-tertiary] flex items-center justify-center overflow-hidden">
                 {project.thumb ? (
@@ -303,7 +924,7 @@ export default function ProjectsTab() {
                 </div>
                 <p className="text-sm text-[--text-secondary] line-clamp-2 mb-2">{project.project_ko}</p>
                 <div className="flex flex-wrap gap-1">
-                  {project.tags.slice(0, 3).map((tag) => (
+                  {project.tags && Array.isArray(project.tags) && project.tags.slice(0, 3).map((tag, idx) => (
                     <span key={tag} className="px-2 py-0.5 rounded text-xs bg-[--bg-tertiary] text-[--text-secondary]">{tag}</span>
                   ))}
                 </div>
@@ -352,6 +973,7 @@ export default function ProjectsTab() {
             onSave={handleSaveProject}
             onChange={setEditingProject}
             onAddCategory={(newCat) => setCategories([...categories, newCat])}
+            saving={saving}
           />
         )}
       </AnimatePresence>
@@ -366,6 +988,7 @@ interface ProjectEditModalProps {
   onSave: () => void;
   onChange: (project: ProjectData) => void;
   onAddCategory: (category: CategoryData) => void;
+  saving?: boolean;
 }
 
 // 카테고리 선택 + 추가 컴포넌트
@@ -485,7 +1108,7 @@ function CategorySelector({
   );
 }
 
-function ProjectEditModal({ project, categories, onClose, onSave, onChange, onAddCategory }: ProjectEditModalProps) {
+function ProjectEditModal({ project, categories, onClose, onSave, onChange, onAddCategory, saving = false }: ProjectEditModalProps) {
   const [expandedSections, setExpandedSections] = useState({
     basic: true,
     description: false,
@@ -495,6 +1118,9 @@ function ProjectEditModal({ project, categories, onClose, onSave, onChange, onAd
     gallery: false,
   });
   const [translating, setTranslating] = useState(false);
+  
+  // 모달 드래그 시 닫힘 방지를 위한 상태
+  const [mouseDownTarget, setMouseDownTarget] = useState<EventTarget | null>(null);
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -515,7 +1141,7 @@ function ProjectEditModal({ project, categories, onClose, onSave, onChange, onAd
   };
 
   const addGalleryImage = () => {
-    onChange({ ...project, gallery: [...project.gallery, { src: '', caption_ko: '', caption_en: '' }] });
+    onChange({ ...project, gallery: [...project.gallery, { src: '', caption_ko: '', caption_en: '', type: 'image' as const }] });
   };
 
   const updateGalleryImage = (index: number, field: keyof GalleryImage, value: string) => {
@@ -585,15 +1211,21 @@ function ProjectEditModal({ project, categories, onClose, onSave, onChange, onAd
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      onClick={onClose}
+      onMouseDown={(e) => setMouseDownTarget(e.target)}
+      onClick={(e) => {
+        // 드래그 시 모달 닫힘 방지: mousedown과 click이 같은 요소에서 발생했을 때만 닫기
+        if (e.target === e.currentTarget && mouseDownTarget === e.currentTarget) {
+          onClose();
+        }
+      }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
     >
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-4xl glass-card rounded-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        onMouseDown={(e) => e.stopPropagation()}
+        className="w-full max-w-4xl glass-card rounded-2xl max-h-[90vh] overflow-hidden flex flex-col select-text"
       >
         {/* 헤더 */}
         <div className="flex items-center justify-between p-6 border-b border-[--border-color]">
@@ -664,6 +1296,12 @@ function ProjectEditModal({ project, categories, onClose, onSave, onChange, onAd
                   value={project.thumb}
                   onChange={(url) => onChange({ ...project, thumb: url })}
                   placeholder="썸네일 이미지 URL"
+                />
+                <VideoUploader
+                  value={project.video || ''}
+                  onChange={(url) => onChange({ ...project, video: url })}
+                  label="영상 URL 또는 파일 업로드 (선택사항)"
+                  placeholder="YouTube, Vimeo, 비디오 파일 URL 또는 파일 업로드"
                 />
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
@@ -814,14 +1452,57 @@ function ProjectEditModal({ project, categories, onClose, onSave, onChange, onAd
                 {project.gallery.map((img, i) => (
                   <div key={i} className="p-4 rounded-lg bg-[--bg-tertiary] space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm font-semibold text-white">이미지 {i + 1}</span>
+                      <span className="text-sm font-semibold text-white">
+                        {img.type === 'video' ? '영상' : '이미지'} {i + 1}
+                      </span>
                       <button onClick={() => removeGalleryImage(i)} className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"><X className="w-4 h-4" /></button>
                     </div>
-                    <ImageUploader
-                      value={img.src}
-                      onChange={(url) => updateGalleryImage(i, 'src', url)}
-                      placeholder="갤러리 이미지"
-                    />
+                    
+                    {/* 타입 선택 */}
+                    <div>
+                      <label className="block text-sm text-[--text-secondary] mb-1">타입</label>
+                      <select
+                        value={img.type || 'image'}
+                        onChange={(e) => updateGalleryImage(i, 'type', e.target.value as 'image' | 'video')}
+                        className="w-full px-4 py-2 rounded-lg bg-[--bg-primary] border border-[--border-color] text-white focus:outline-none focus:border-[--accent-color]"
+                      >
+                        <option value="image">이미지</option>
+                        <option value="video">영상</option>
+                      </select>
+                    </div>
+
+                    {/* 이미지인 경우: 썸네일 이미지 */}
+                    {(!img.type || img.type === 'image') && (
+                      <ImageUploader
+                        value={img.src}
+                        onChange={(url) => updateGalleryImage(i, 'src', url)}
+                        placeholder="갤러리 이미지 URL"
+                      />
+                    )}
+
+                    {/* 영상인 경우: 썸네일과 영상 URL */}
+                    {img.type === 'video' && (
+                      <>
+                        <div>
+                          <label className="block text-sm text-[--text-secondary] mb-1">썸네일 이미지 URL (선택사항)</label>
+                          <input
+                            type="url"
+                            value={img.src || ''}
+                            onChange={(e) => updateGalleryImage(i, 'src', e.target.value)}
+                            placeholder="영상 썸네일 이미지 URL"
+                            className="w-full px-4 py-2 rounded-lg bg-[--bg-primary] border border-[--border-color] text-white focus:outline-none focus:border-[--accent-color]"
+                          />
+                        </div>
+                        <VideoUploader
+                          value={img.videoUrl || ''}
+                          onChange={(url) => updateGalleryImage(i, 'videoUrl', url)}
+                          label="영상 URL 또는 파일 업로드"
+                          placeholder="YouTube, Vimeo, 비디오 파일 URL 또는 파일 업로드"
+                        />
+                      </>
+                    )}
+
+                    {/* 캡션 */}
                     <div className="grid md:grid-cols-2 gap-2">
                       <input type="text" value={img.caption_ko} onChange={(e) => updateGalleryImage(i, 'caption_ko', e.target.value)} placeholder="캡션 (한글)" className="w-full px-4 py-2 rounded-lg bg-[--bg-primary] border border-[--border-color] text-white focus:outline-none focus:border-[--accent-color]" />
                       <input type="text" value={img.caption_en} onChange={(e) => updateGalleryImage(i, 'caption_en', e.target.value)} placeholder="Caption (English) ← 자동번역" className="w-full px-4 py-2 rounded-lg bg-[--bg-primary] border border-[--border-color] text-white focus:outline-none focus:border-[--accent-color]" />
@@ -829,7 +1510,7 @@ function ProjectEditModal({ project, categories, onClose, onSave, onChange, onAd
                   </div>
                 ))}
                 <button onClick={addGalleryImage} className="w-full py-3 rounded-lg border-2 border-dashed border-[--border-color] text-[--text-secondary] hover:border-[--accent-color] hover:text-[--accent-color] flex items-center justify-center gap-2">
-                  <Plus className="w-4 h-4" /> 이미지 추가
+                  <Plus className="w-4 h-4" /> 이미지/영상 추가
                 </button>
               </div>
             )}
@@ -839,7 +1520,14 @@ function ProjectEditModal({ project, categories, onClose, onSave, onChange, onAd
         {/* 푸터 */}
         <div className="flex gap-3 p-6 border-t border-[--border-color]">
           <button onClick={onClose} className="flex-1 px-4 py-3 rounded-xl border border-[--border-color] text-[--text-secondary] hover:bg-[--bg-tertiary]">취소</button>
-          <button onClick={onSave} className="flex-1 btn-primary flex items-center justify-center gap-2"><Save className="w-4 h-4" />저장</button>
+          <button 
+            onClick={onSave} 
+            disabled={saving || translating}
+            className="flex-1 btn-primary flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Save className="w-4 h-4" />
+            {saving ? '저장 중...' : '저장'}
+          </button>
         </div>
       </motion.div>
     </motion.div>

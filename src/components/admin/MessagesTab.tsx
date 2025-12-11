@@ -38,21 +38,57 @@ export default function MessagesTab() {
   const [useSupabase, setUseSupabase] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // 데이터 로드
+  // 데이터 로드 - 어드민은 Service Role API 사용하여 비밀글 포함 모든 메시지 조회
   const loadMessages = useCallback(async () => {
+    console.log('🔄 어드민: loadMessages 시작');
     setIsLoading(true);
     try {
       if (isSupabaseAvailable()) {
+        console.log('⚡ Supabase 사용 가능, 어드민 API로 모든 메시지 로드 시도');
+        
+        // 어드민용 API 사용 (Service Role Key로 비밀글 포함 모든 메시지 조회)
+        // 캐시 방지를 위해 timestamp 추가
+        const response = await fetch(`/api/guestbook/admin?t=${Date.now()}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store', // 캐시 방지
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.data) {
+            const dbMessages = result.data as GuestbookDB[];
+            console.log('✅ 어드민 API에서 메시지 로드 성공:', {
+              total: dbMessages.length,
+              secret: dbMessages.filter(m => m.is_secret).length,
+              public: dbMessages.filter(m => !m.is_secret).length,
+              messages: dbMessages.map(m => ({ id: m.id, name: m.name, is_secret: m.is_secret }))
+            });
+            setMessages(dbMessages.map(dbToGuestMessage));
+            setUseSupabase(true);
+            setIsLoading(false);
+            return;
+          } else {
+            console.warn('⚠️ 어드민 API 응답 형식 오류:', result);
+          }
+        } else {
+          console.error('⚠️ 어드민 API 응답 실패:', response.status, response.statusText);
+        }
+        
+        // 어드민 API 실패 시 일반 API로 폴백
+        console.warn('⚠️ 어드민 API 실패, 일반 API로 폴백');
         const dbMessages = await api.getGuestbook();
+        console.log('✅ 일반 API에서 메시지 로드 성공:', dbMessages.length);
         setMessages(dbMessages.map(dbToGuestMessage));
         setUseSupabase(true);
         setIsLoading(false);
         return;
       }
     } catch (error) {
-      console.warn('Supabase 로드 실패, 로컬스토리지 사용:', error);
+      console.warn('⚠️ Supabase 로드 실패, 로컬스토리지 사용:', error);
     }
     // 폴백: 로컬스토리지
+    console.log('💾 localStorage에서 메시지 로드 시도');
     const localMessages = getMessages();
     console.log('📂 어드민: 로컬스토리지에서 메시지 로드:', {
       totalMessages: localMessages.length,
@@ -83,12 +119,29 @@ export default function MessagesTab() {
       }
     };
     
+    // 페이지 포커스 시 자동 새로고침 (다른 브라우저에서 등록한 데이터 확인)
+    const handleFocus = () => {
+      console.log('📱 페이지 포커스됨 - 메시지 새로고침');
+      loadMessages();
+    };
+    
+    // 주기적 자동 새로고침 (30초마다)
+    const autoRefreshInterval = setInterval(() => {
+      if (useSupabase || isSupabaseAvailable()) {
+        console.log('🔄 자동 새로고침 실행');
+        loadMessages();
+      }
+    }, 30000); // 30초
+    
     window.addEventListener(SITE_DATA_UPDATED_EVENT, handleDataUpdate);
     window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('focus', handleFocus);
     
     return () => {
       window.removeEventListener(SITE_DATA_UPDATED_EVENT, handleDataUpdate);
       window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(autoRefreshInterval);
     };
   }, [loadMessages]);
 
@@ -307,14 +360,21 @@ export default function MessagesTab() {
         <div>
           <h2 className="text-2xl font-bold text-white flex items-center gap-2">
             메시지 관리
-            {useSupabase && (
+            {useSupabase ? (
               <span className="text-xs px-2 py-1 rounded bg-green-500/20 text-green-400 font-normal">
                 Supabase 연동
+              </span>
+            ) : (
+              <span className="text-xs px-2 py-1 rounded bg-yellow-500/20 text-yellow-400 font-normal">
+                로컬 스토리지 (다른 브라우저 데이터 미표시)
               </span>
             )}
           </h2>
           <p className="text-sm text-[--text-secondary]">
             총 {messages.length}개 | 읽지 않음 {unreadCount}개 | 비밀글 {secretCount}개
+            {!useSupabase && (
+              <span className="ml-2 text-yellow-400">⚠️ Supabase 설정 필요</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">

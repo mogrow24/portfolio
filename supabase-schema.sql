@@ -304,6 +304,7 @@ CREATE TABLE IF NOT EXISTS guestbook (
   reply_en TEXT,
   reply_at TIMESTAMP WITH TIME ZONE,
   is_reply_locked BOOLEAN DEFAULT false,
+  visitor_id VARCHAR(200), -- 방문자 ID (방문자 추적과 연결)
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -320,10 +321,11 @@ CREATE POLICY "Anyone can insert guestbook"
   ON guestbook FOR INSERT
   WITH CHECK (true);
 
--- 공개 질문은 누구나 조회, 비밀글은 인증된 사용자만
-CREATE POLICY "Public or authenticated can view guestbook"
+-- 모든 게스트북 메시지 조회 가능 (비밀글 포함)
+-- 비밀글 내용은 프론트엔드에서 블러 처리하여 표시
+CREATE POLICY "Anyone can view all guestbook messages"
   ON guestbook FOR SELECT
-  USING (is_secret = false OR auth.role() = 'authenticated');
+  USING (true);
 
 -- 인증된 사용자만 수정/삭제 가능
 CREATE POLICY "Only authenticated users can update guestbook"
@@ -340,6 +342,7 @@ CREATE POLICY "Only authenticated users can delete guestbook"
 CREATE TABLE IF NOT EXISTS visitor_count (
   id VARCHAR(50) PRIMARY KEY DEFAULT 'global',
   count INTEGER DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -383,5 +386,122 @@ BEGIN
   RETURN new_count;
 END;
 $$;
+
+-- =====================================================
+-- 8. 방문자 추적 테이블
+-- =====================================================
+CREATE TABLE IF NOT EXISTS visitors (
+  visitor_id VARCHAR(200) PRIMARY KEY,
+  referrer TEXT,
+  user_agent TEXT,
+  visit_count INTEGER DEFAULT 1,
+  first_visit TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_visit TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  total_duration INTEGER DEFAULT 0, -- 총 체류 시간 (초)
+  device_type VARCHAR(50) DEFAULT 'unknown',
+  browser VARCHAR(100) DEFAULT 'Unknown',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 방문자 테이블 인덱스
+CREATE INDEX IF NOT EXISTS idx_visitors_last_visit ON visitors(last_visit DESC);
+CREATE INDEX IF NOT EXISTS idx_visitors_device_type ON visitors(device_type);
+CREATE INDEX IF NOT EXISTS idx_visitors_visit_count ON visitors(visit_count DESC);
+
+-- 방문자 테이블 RLS (어드민만 조회 가능하도록 설정)
+ALTER TABLE visitors ENABLE ROW LEVEL SECURITY;
+
+-- 누구나 방문 기록 삽입 가능
+CREATE POLICY "Anyone can insert visitor records"
+  ON visitors FOR INSERT
+  WITH CHECK (true);
+
+-- 누구나 방문 기록 업데이트 가능 (upsert용)
+CREATE POLICY "Anyone can update visitor records"
+  ON visitors FOR UPDATE
+  USING (true);
+
+-- 조회는 Service Role Key를 통한 API에서만 가능 (어드민)
+-- 일반 사용자는 조회 불가
+
+-- =====================================================
+-- 9. 사이트 컨텐츠 테이블 (프론트엔드 동기화용)
+-- JSONB를 사용하여 유연한 데이터 구조 지원
+-- =====================================================
+CREATE TABLE IF NOT EXISTS site_content (
+  key VARCHAR(100) PRIMARY KEY,
+  data JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 사이트 컨텐츠 인덱스
+CREATE INDEX IF NOT EXISTS idx_site_content_updated ON site_content(updated_at DESC);
+
+-- 사이트 컨텐츠 RLS
+ALTER TABLE site_content ENABLE ROW LEVEL SECURITY;
+
+-- 누구나 조회 가능
+CREATE POLICY "Anyone can view site content"
+  ON site_content FOR SELECT
+  USING (true);
+
+-- 누구나 삽입/수정 가능 (어드민 페이지에서)
+CREATE POLICY "Anyone can insert site content"
+  ON site_content FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY "Anyone can update site content"
+  ON site_content FOR UPDATE
+  USING (true);
+
+-- 사이트 컨텐츠 upsert 함수 (원자적 업데이트)
+CREATE OR REPLACE FUNCTION upsert_site_content(
+  p_key VARCHAR(100),
+  p_data JSONB
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  result_data JSONB;
+BEGIN
+  INSERT INTO site_content (key, data, updated_at)
+  VALUES (p_key, p_data, NOW())
+  ON CONFLICT (key) 
+  DO UPDATE SET 
+    data = p_data,
+    updated_at = NOW()
+  RETURNING data INTO result_data;
+  
+  RETURN result_data;
+END;
+$$;
+
+-- 실시간 구독을 위한 트리거 함수
+CREATE OR REPLACE FUNCTION notify_site_content_change()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  PERFORM pg_notify(
+    'site_content_change',
+    json_build_object(
+      'key', NEW.key,
+      'updated_at', NEW.updated_at
+    )::text
+  );
+  RETURN NEW;
+END;
+$$;
+
+-- 트리거 생성
+DROP TRIGGER IF EXISTS site_content_change_trigger ON site_content;
+CREATE TRIGGER site_content_change_trigger
+  AFTER INSERT OR UPDATE ON site_content
+  FOR EACH ROW
+  EXECUTE FUNCTION notify_site_content_change();
 
 

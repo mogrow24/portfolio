@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowRight, Zap } from 'lucide-react';
+import { ChevronDown, Zap } from 'lucide-react';
 import { useLocale } from '@/context/LocaleContext';
-import { getProfile, type ProfileData, DEFAULT_PROFILE } from '@/lib/siteData';
+import { type ProfileData, DEFAULT_PROFILE, STORAGE_KEYS, SITE_DATA_UPDATED_EVENT } from '@/lib/siteData';
 
 const heroContent = {
   ko: {
@@ -61,17 +61,148 @@ const TypewriterText = ({
   );
 };
 
-// 플로팅 파티클 컴포넌트
+// 자동 크기 조정 텍스트 컴포넌트 (무한 루프 완전 방지)
+const AutoFitText = ({ 
+  text, 
+  className = '', 
+  maxLines = 2 
+}: { 
+  text: string; 
+  className?: string; 
+  maxLines?: number;
+}) => {
+  const textRef = useRef<HTMLSpanElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [fontSize, setFontSize] = useState<number | null>(null);
+  const hasCalculatedRef = useRef(false); // 계산 완료 플래그
+
+  useEffect(() => {
+    // 이미 계산이 완료되었으면 재계산하지 않음
+    if (hasCalculatedRef.current || !textRef.current || !containerRef.current || !text) {
+      return;
+    }
+
+    const container = containerRef.current;
+    const textElement = textRef.current;
+    
+    // 초기 크기 설정 (반응형 기준)
+    const getBaseSize = () => {
+      if (typeof window === 'undefined') return 64;
+      const width = window.innerWidth;
+      if (width >= 1024) return 64; // lg
+      if (width >= 768) return 48;  // md
+      if (width >= 640) return 40;  // sm
+      return 32; // mobile
+    };
+    
+    let baseSize = getBaseSize();
+    let currentSize = baseSize;
+    let animationFrameId: number | null = null;
+
+    // 텍스트가 영역에 맞을 때까지 크기 줄이기 (한 번만 실행)
+    const checkFit = () => {
+      if (hasCalculatedRef.current) return;
+      
+      const fitCheck = () => {
+        if (!textRef.current || !containerRef.current || hasCalculatedRef.current) {
+          return;
+        }
+
+        const containerWidth = container.offsetWidth || container.clientWidth;
+        if (!containerWidth) {
+          animationFrameId = requestAnimationFrame(fitCheck);
+          return;
+        }
+
+        // 임시 스타일 적용하여 크기 측정
+        const originalDisplay = textElement.style.display;
+        textElement.style.display = 'block';
+        textElement.style.visibility = 'hidden';
+        textElement.style.position = 'absolute';
+        textElement.style.width = `${containerWidth}px`;
+        textElement.style.fontSize = `${currentSize}px`;
+        textElement.style.lineHeight = '1.1';
+        textElement.style.whiteSpace = 'normal';
+        
+        // 실제 렌더링된 크기 확인
+        const lineHeight = parseFloat(getComputedStyle(textElement).lineHeight) || currentSize * 1.1;
+        const textHeight = textElement.scrollHeight;
+        const maxHeight = lineHeight * maxLines;
+        const textWidth = textElement.scrollWidth;
+        
+        // 원래 스타일 복원
+        textElement.style.display = originalDisplay;
+        textElement.style.visibility = '';
+        textElement.style.position = '';
+        textElement.style.width = '';
+        textElement.style.whiteSpace = '';
+        
+        // 크기 조정 필요 여부 확인
+        if ((textHeight > maxHeight || textWidth > containerWidth) && currentSize > 24) {
+          currentSize -= 1;
+          animationFrameId = requestAnimationFrame(fitCheck);
+        } else {
+          const finalSize = Math.max(24, currentSize);
+          setFontSize(finalSize);
+          hasCalculatedRef.current = true; // 계산 완료 표시
+        }
+      };
+
+      // 레이아웃 완료 후 시작
+      setTimeout(() => {
+        fitCheck();
+      }, 100);
+    };
+
+    // 초기 체크 (한 번만 실행)
+    checkFit();
+
+    return () => {
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [text, maxLines]); // text나 maxLines가 변경될 때만 재계산
+
+  return (
+    <div ref={containerRef} className="w-full">
+      <span
+        ref={textRef}
+        className={className}
+        style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
+      >
+        {text}
+      </span>
+    </div>
+  );
+};
+
+// 플로팅 파티클 컴포넌트 (hydration 경고 방지)
 const FloatingParticles = ({ count = 15 }: { count?: number }) => {
-  const particles = Array.from({ length: count }, (_, i) => ({
-    id: i,
-    x: Math.random() * 100,
-    y: Math.random() * 100,
-    size: Math.random() * 3 + 1,
-    duration: Math.random() * 8 + 6,
-    delay: Math.random() * 4,
-    color: ['var(--accent-color)', 'var(--accent-secondary)', 'var(--accent-tertiary)'][Math.floor(Math.random() * 3)],
-  }));
+  const [particles, setParticles] = useState<Array<{
+    id: number;
+    x: number;
+    y: number;
+    size: number;
+    duration: number;
+    delay: number;
+    color: string;
+  }>>([]);
+
+  // 클라이언트에서만 파티클 생성 (hydration 경고 방지)
+  useEffect(() => {
+    setParticles(Array.from({ length: count }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      y: Math.random() * 100,
+      size: Math.random() * 3 + 1,
+      duration: Math.random() * 8 + 6,
+      delay: Math.random() * 4,
+      color: ['var(--accent-color)', 'var(--accent-secondary)', 'var(--accent-tertiary)'][Math.floor(Math.random() * 3)],
+    })));
+  }, [count]);
+
+  if (particles.length === 0) return null;
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -112,10 +243,45 @@ export default function Hero() {
   const heroRef = useRef<HTMLElement>(null);
   const heroT = heroContent[locale as keyof typeof heroContent] ?? heroContent.ko;
 
+  // 로컬 스토리지에서 직접 데이터 로드
+  const loadData = useCallback(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.PROFILE);
+      if (stored) {
+        const data: ProfileData = JSON.parse(stored);
+        setProfile(data);
+      }
+    } catch (e) {
+      console.error('프로필 데이터 로드 실패:', e);
+    }
+  }, []);
+
   useEffect(() => {
     setIsClient(true);
-    setProfile(getProfile());
-  }, []);
+    loadData();
+
+    // 로컬 스토리지 변경 감지 (다른 탭에서 저장 시)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.PROFILE || e.key === null) {
+        loadData();
+      }
+    };
+
+    // 커스텀 이벤트 감지 (같은 탭 어드민에서 저장 시 실시간 반영)
+    const handleSiteDataUpdate = (e: Event) => {
+      const customEvent = e as CustomEvent<{ key: string; data: unknown }>;
+      if (customEvent.detail.key === STORAGE_KEYS.PROFILE) {
+        loadData();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener(SITE_DATA_UPDATED_EVENT, handleSiteDataUpdate);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener(SITE_DATA_UPDATED_EVENT, handleSiteDataUpdate);
+    };
+  }, [loadData]);
 
   // 로케일에 따른 콘텐츠
   const content = isClient ? {
@@ -177,16 +343,24 @@ export default function Hero() {
             </span>
           </motion.div>
           
-          {/* 메인 타이틀 */}
-          <motion.h1
+          {/* 메인 타이틀 - 자동 크기 조정 */}
+          <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.4 }}
-            className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold leading-[1.1] mb-6 tracking-tight"
+            className="mb-6"
           >
-            <span className="block mb-2">{content.title1}</span>
-            <span className="hero-text-gradient block">{content.title2}</span>
-          </motion.h1>
+            <AutoFitText
+              text={content.title1}
+              className="block mb-2 text-white font-extrabold leading-[1.1] tracking-tight"
+              maxLines={2}
+            />
+            <AutoFitText
+              text={content.title2}
+              className="hero-text-gradient block font-extrabold leading-[1.1] tracking-tight"
+              maxLines={2}
+            />
+          </motion.div>
           
           {/* 설명 */}
           <motion.p 
@@ -210,7 +384,7 @@ export default function Hero() {
               className="btn-hero group"
             >
               <span>{content.cta}</span>
-              <ArrowRight className="w-5 h-5" />
+              <ChevronDown className="w-5 h-5" />
             </button>
           </motion.div>
 

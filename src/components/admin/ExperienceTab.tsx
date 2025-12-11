@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Save, Plus, Edit3, Trash2, X, Briefcase, Calendar, Languages, Loader2 } from 'lucide-react';
+import { Save, Plus, Edit3, Trash2, X, Briefcase, Calendar, Languages, Loader2, ChevronUp, ChevronDown, GripVertical, ArrowUpDown } from 'lucide-react';
 import { getExperiences, saveExperiences, type ExperienceData } from '@/lib/siteData';
 import { translateKoToEn, translateArrayKoToEn } from '@/lib/translate';
 
@@ -12,18 +12,29 @@ export default function ExperienceTab() {
   const [editingItem, setEditingItem] = useState<ExperienceData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [translating, setTranslating] = useState(false);
+  
+  // 모달 드래그 시 닫힘 방지를 위한 상태
+  const [mouseDownTarget, setMouseDownTarget] = useState<EventTarget | null>(null);
 
   useEffect(() => {
-    setExperiences(getExperiences());
+    // order_index로 정렬된 데이터 로드
+    const loadedExperiences = getExperiences();
+    setExperiences(loadedExperiences.sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
-    saveExperiences(experiences);
-    setTimeout(() => setSaving(false), 1000);
+    // order_index 재할당 후 저장
+    const reorderedExperiences = experiences.map((exp, index) => ({
+      ...exp,
+      order_index: index,
+    }));
+    await saveExperiences(reorderedExperiences);
+    setTimeout(() => setSaving(false), 500);
   };
 
   const handleAddNew = () => {
+    // 새 항목은 맨 위에 추가 (order_index: 0)
     setEditingItem({
       id: `exp-${Date.now()}`,
       company_ko: '',
@@ -33,8 +44,60 @@ export default function ExperienceTab() {
       period: '',
       highlights_ko: [''],
       highlights_en: [''],
+      order_index: 0,
     });
     setIsModalOpen(true);
+  };
+
+  // 순서 이동 함수
+  const handleMoveUp = (index: number) => {
+    if (index === 0) return;
+    const newExperiences = [...experiences];
+    [newExperiences[index - 1], newExperiences[index]] = [newExperiences[index], newExperiences[index - 1]];
+    // order_index 재할당
+    const reordered = newExperiences.map((exp, i) => ({ ...exp, order_index: i }));
+    setExperiences(reordered);
+  };
+
+  const handleMoveDown = (index: number) => {
+    if (index === experiences.length - 1) return;
+    const newExperiences = [...experiences];
+    [newExperiences[index], newExperiences[index + 1]] = [newExperiences[index + 1], newExperiences[index]];
+    // order_index 재할당
+    const reordered = newExperiences.map((exp, i) => ({ ...exp, order_index: i }));
+    setExperiences(reordered);
+  };
+
+  // 날짜순 자동 정렬 (최신순: 종료일 기준 내림차순)
+  const handleSortByDate = () => {
+    const sorted = [...experiences].sort((a, b) => {
+      // period 형식: "2022.01 ~ 2025.05" 또는 "2022.01 ~ 현재"
+      const getEndDate = (period: string): number => {
+        const parts = period.split('~').map(p => p.trim());
+        const endPart = parts[1] || parts[0];
+        
+        // "현재" 또는 "Present"인 경우 가장 최신으로
+        if (endPart.includes('현재') || endPart.toLowerCase().includes('present')) {
+          return 999999;
+        }
+        
+        // "2025.05" → 202505 숫자로 변환
+        const match = endPart.match(/(\d{4})\.?(\d{1,2})?/);
+        if (match) {
+          const year = parseInt(match[1]);
+          const month = match[2] ? parseInt(match[2]) : 12;
+          return year * 100 + month;
+        }
+        return 0;
+      };
+      
+      // 내림차순 (최신이 위로)
+      return getEndDate(b.period) - getEndDate(a.period);
+    });
+    
+    // order_index 재할당
+    const reordered = sorted.map((exp, i) => ({ ...exp, order_index: i }));
+    setExperiences(reordered);
   };
 
   const handleEdit = (item: ExperienceData) => {
@@ -59,9 +122,15 @@ export default function ExperienceTab() {
     
     const exists = experiences.find(e => e.id === cleaned.id);
     if (exists) {
+      // 기존 항목 수정
       setExperiences(experiences.map(e => e.id === cleaned.id ? cleaned : e));
     } else {
-      setExperiences([...experiences, cleaned]);
+      // 새 항목은 맨 위에 추가 (기존 항목들의 order_index를 1씩 증가)
+      const updatedExperiences = experiences.map(exp => ({
+        ...exp,
+        order_index: (exp.order_index ?? 0) + 1,
+      }));
+      setExperiences([{ ...cleaned, order_index: 0 }, ...updatedExperiences]);
     }
     
     setIsModalOpen(false);
@@ -122,6 +191,16 @@ export default function ExperienceTab() {
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
+            onClick={handleSortByDate}
+            className="px-4 py-2 rounded-lg bg-[--bg-tertiary] text-white flex items-center gap-2 hover:bg-[--accent-color]/20"
+            title="종료일 기준 최신순 정렬"
+          >
+            <ArrowUpDown className="w-4 h-4" />
+            날짜순
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={handleAddNew}
             className="px-4 py-2 rounded-lg bg-[--bg-tertiary] text-white flex items-center gap-2 hover:bg-[--accent-color]/20"
           >
@@ -148,15 +227,38 @@ export default function ExperienceTab() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.05 }}
+            layout
             className="glass-card rounded-xl p-5"
           >
             <div className="flex items-start justify-between mb-3">
               <div className="flex items-center gap-3">
+                {/* 순서 조정 버튼 */}
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={() => handleMoveUp(index)}
+                    disabled={index === 0}
+                    className={`p-1 rounded transition-colors ${index === 0 ? 'text-[--text-secondary]/30 cursor-not-allowed' : 'text-[--text-secondary] hover:text-[--accent-color] hover:bg-[--accent-color]/10'}`}
+                    title="위로 이동"
+                  >
+                    <ChevronUp className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleMoveDown(index)}
+                    disabled={index === experiences.length - 1}
+                    className={`p-1 rounded transition-colors ${index === experiences.length - 1 ? 'text-[--text-secondary]/30 cursor-not-allowed' : 'text-[--text-secondary] hover:text-[--accent-color] hover:bg-[--accent-color]/10'}`}
+                    title="아래로 이동"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                </div>
                 <div className="w-12 h-12 rounded-xl bg-[--accent-color]/10 flex items-center justify-center">
                   <Briefcase className="w-6 h-6 text-[--accent-color]" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-white">{exp.company_ko}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-white">{exp.company_ko}</h3>
+                    <span className="text-xs px-2 py-0.5 rounded bg-[--bg-tertiary] text-[--text-secondary]">#{index + 1}</span>
+                  </div>
                   <p className="text-sm text-[--accent-color]">{exp.position_ko}</p>
                 </div>
               </div>
@@ -179,7 +281,7 @@ export default function ExperienceTab() {
                 </button>
               </div>
             </div>
-            <ul className="text-sm text-[--text-secondary] space-y-1 ml-4">
+            <ul className="text-sm text-[--text-secondary] space-y-1 ml-16">
               {exp.highlights_ko.slice(0, 3).map((h, i) => (
                 <li key={i} className="list-disc">{h}</li>
               ))}
@@ -198,15 +300,21 @@ export default function ExperienceTab() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => setIsModalOpen(false)}
+            onMouseDown={(e) => setMouseDownTarget(e.target)}
+            onClick={(e) => {
+              // 드래그 시 모달 닫힘 방지: mousedown과 click이 같은 요소에서 발생했을 때만 닫기
+              if (e.target === e.currentTarget && mouseDownTarget === e.currentTarget) {
+                setIsModalOpen(false);
+              }
+            }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-3xl glass-card rounded-2xl p-6 max-h-[90vh] overflow-y-auto"
+              onMouseDown={(e) => e.stopPropagation()}
+              className="w-full max-w-3xl glass-card rounded-2xl p-6 max-h-[90vh] overflow-y-auto select-text"
             >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-white">경력 편집</h2>

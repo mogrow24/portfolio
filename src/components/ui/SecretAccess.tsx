@@ -62,7 +62,18 @@ export default function SecretAccess({ isOpen, onClose }: SecretAccessProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code }),
       });
-      
+
+      // 응답이 없거나 실패한 경우
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: '인증에 실패했습니다.' }));
+        console.error('인증 실패:', response.status, errorData);
+        setError(true);
+        setCode('');
+        setLoading(false);
+        setTimeout(() => setError(false), 2000);
+        return;
+      }
+
       const data = await response.json();
       
       if (data.success && data.token) {
@@ -71,20 +82,24 @@ export default function SecretAccess({ isOpen, onClose }: SecretAccessProps) {
         localStorage.setItem('admin_auth_token', data.token);
         localStorage.setItem('admin_auth_time', Date.now().toString());
         
+        // 성공 후 대시보드로 이동
         setTimeout(() => {
+          setLoading(false);
           router.push('/admin/dashboard');
         }, 800);
       } else {
+        console.error('인증 실패:', data);
         setError(true);
         setCode('');
-        setTimeout(() => setError(false), 1500);
+        setLoading(false);
+        setTimeout(() => setError(false), 2000);
       }
-    } catch {
+    } catch (error) {
+      console.error('인증 요청 오류:', error);
       setError(true);
       setCode('');
-      setTimeout(() => setError(false), 1500);
-    } finally {
       setLoading(false);
+      setTimeout(() => setError(false), 2000);
     }
   };
 

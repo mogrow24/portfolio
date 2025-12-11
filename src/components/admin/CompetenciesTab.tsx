@@ -29,15 +29,18 @@ export default function CompetenciesTab() {
   const [editingItem, setEditingItem] = useState<CompetencyData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [translating, setTranslating] = useState(false);
+  
+  // 모달 드래그 시 닫힘 방지를 위한 상태
+  const [mouseDownTarget, setMouseDownTarget] = useState<EventTarget | null>(null);
 
   useEffect(() => {
     setCompetencies(getCompetencies());
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
-    saveCompetencies(competencies);
-    setTimeout(() => setSaving(false), 1000);
+    await saveCompetencies(competencies);
+    setTimeout(() => setSaving(false), 500);
   };
 
   const handleAddNew = () => {
@@ -172,15 +175,21 @@ export default function CompetenciesTab() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => setIsModalOpen(false)}
+            onMouseDown={(e) => setMouseDownTarget(e.target)}
+            onClick={(e) => {
+              // 드래그 시 모달 닫힘 방지: mousedown과 click이 같은 요소에서 발생했을 때만 닫기
+              if (e.target === e.currentTarget && mouseDownTarget === e.currentTarget) {
+                setIsModalOpen(false);
+              }
+            }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="w-full max-w-2xl glass-card rounded-2xl p-6 max-h-[90vh] overflow-y-auto"
+              onMouseDown={(e) => e.stopPropagation()}
+              className="w-full max-w-2xl glass-card rounded-2xl p-6 max-h-[90vh] overflow-y-auto select-text"
             >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-bold text-white">역량 편집</h2>

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowUp, Users, Sparkles } from 'lucide-react';
 import SecretAccess from '@/components/ui/SecretAccess';
-import { incrementVisitorCountAsync, getVisitorCount } from '@/lib/visitors';
+import { incrementVisitorCountAsync, getVisitorCount, getVisitorId } from '@/lib/visitors';
 import { useLocale } from '@/context/LocaleContext';
 
 const content = {
@@ -30,17 +30,108 @@ export default function Footer() {
 
   useEffect(() => {
     setIsClient(true);
+    
+    // 방문자 ID 먼저 생성 (없으면 생성)
+    try {
+      getVisitorId();
+    } catch (idError) {
+      console.warn('방문자 ID 생성 실패:', idError);
+    }
+    
     // 방문자 수 증가 및 가져오기 (비동기)
     const loadVisitorCount = async () => {
+      let cachedCount = 0;
+      
       try {
-        const count = await incrementVisitorCountAsync();
-        setVisitorCount(count);
-      } catch {
-        // 실패 시 로컬 캐시 사용
-        setVisitorCount(getVisitorCount());
+        // 먼저 로컬 스토리지에서 확인 (새로고침 시에도 유지)
+        cachedCount = getVisitorCount();
+        if (cachedCount > 0) {
+          setVisitorCount(cachedCount);
+          console.log('📦 캐시된 방문자 수 표시:', cachedCount);
+        }
+      } catch (cacheError) {
+        console.warn('로컬 캐시 읽기 실패:', cacheError);
+      }
+      
+      // 서버에서 최신 값 가져오기 (재시도 로직 포함)
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      while (retryCount < maxRetries) {
+        try {
+          console.log(`🔄 방문자 수 로드 시도 ${retryCount + 1}/${maxRetries}...`);
+          
+          const count = await Promise.race([
+            incrementVisitorCountAsync(),
+            new Promise<number>((resolve) => {
+              setTimeout(() => {
+                console.warn('⏱️ 방문자 수 로드 타임아웃');
+                resolve(cachedCount);
+              }, 8000); // 8초 타임아웃
+            })
+          ]);
+          
+          // 서버에서 가져온 값이 유효한지 확인
+          if (typeof count === 'number' && count >= 0) {
+            // 값이 있으면 무조건 표시 (0도 유효한 값이지만, 캐시가 있으면 캐시 우선)
+            if (count > 0 || cachedCount === 0) {
+              setVisitorCount(count);
+              console.log('✅ 방문자 수 로드 완료:', count);
+              return; // 성공하면 종료
+            } else {
+              // 서버가 0을 반환했지만 캐시가 있으면 캐시 사용
+              setVisitorCount(cachedCount);
+              console.log('✅ 캐시된 방문자 수 사용:', cachedCount);
+              return;
+            }
+          } else {
+            console.warn('⚠️ 유효하지 않은 방문자 수:', count);
+            retryCount++;
+            if (retryCount < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)); // 지수 백오프
+              continue;
+            }
+          }
+        } catch (apiError) {
+          console.warn(`⚠️ 방문자 수 API 호출 실패 (시도 ${retryCount + 1}/${maxRetries}):`, apiError);
+          retryCount++;
+          
+          if (retryCount < maxRetries) {
+            // 재시도 전 대기
+            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+            continue;
+          } else {
+            // 모든 재시도 실패 시 캐시 사용
+            console.warn('❌ 모든 재시도 실패, 캐시된 값 사용');
+            if (cachedCount > 0) {
+              setVisitorCount(cachedCount);
+              console.log('📦 캐시된 방문자 수 표시:', cachedCount);
+            } else {
+              // 캐시도 없으면 최소한 1명 표시 (현재 방문자 포함)
+              setVisitorCount(1);
+              console.log('🆕 첫 방문자로 표시: 1');
+            }
+            return;
+          }
+        }
+      }
+      
+      // 모든 재시도 실패 시 최종 폴백
+      if (cachedCount > 0) {
+        setVisitorCount(cachedCount);
+      } else {
+        setVisitorCount(1); // 최소한 1명 표시
       }
     };
-    loadVisitorCount();
+    
+    // 약간의 지연 후 실행 (다른 초기화 완료 대기)
+    const timeoutId = setTimeout(() => {
+      loadVisitorCount();
+    }, 100);
+    
+    return () => {
+      clearTimeout(timeoutId);
+    };
   }, []);
 
   const scrollToTop = () => {

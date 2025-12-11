@@ -11,37 +11,51 @@ export default function AdminPage() {
       // 토큰 확인
       const token = localStorage.getItem('admin_auth_token');
       const authTime = localStorage.getItem('admin_auth_time');
-      
-      if (token && authTime) {
-        const elapsed = Date.now() - parseInt(authTime);
-        // 24시간 내 인증 유효
-        if (elapsed < 24 * 60 * 60 * 1000) {
-          // 서버에서 토큰 유효성 검증
-          try {
-            const response = await fetch('/api/auth', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'verify', token }),
-            });
-            
-            const data = await response.json();
-            
-            if (data.success && data.valid) {
-              router.push('/admin/dashboard');
-              return;
-            }
-          } catch {
-            // 검증 실패 시 로그아웃 처리
-          }
-        }
-        
-        // 만료된 토큰 제거
+
+      console.log('🔐 인증 확인:', { hasToken: !!token, hasAuthTime: !!authTime });
+
+      if (!token || !authTime) {
+        console.log('❌ 인증 토큰 없음 - 메인 페이지로 리다이렉트');
+        router.push('/');
+        return;
+      }
+
+      const elapsed = Date.now() - parseInt(authTime);
+      console.log('⏰ 토큰 경과 시간:', Math.floor(elapsed / 1000 / 60), '분');
+
+      // 24시간 초과 시 만료
+      if (elapsed >= 24 * 60 * 60 * 1000) {
+        console.log('⚠️ 토큰 만료 - 메인 페이지로 리다이렉트');
         localStorage.removeItem('admin_auth_token');
         localStorage.removeItem('admin_auth_time');
+        router.push('/');
+        return;
       }
-      
-      // 인증되지 않았으면 메인 페이지로
-      router.push('/');
+
+      // 서버에서 토큰 유효성 검증
+      try {
+        const response = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'verify', token }),
+        });
+
+        const data = await response.json();
+
+        if (data.success && data.valid) {
+          console.log('✅ 토큰 유효, 대시보드로 이동');
+          router.push('/admin/dashboard');
+        } else {
+          console.log('❌ 토큰 유효성 검증 실패 - 메인 페이지로 리다이렉트');
+          localStorage.removeItem('admin_auth_token');
+          localStorage.removeItem('admin_auth_time');
+          router.push('/');
+        }
+      } catch (error) {
+        console.error('토큰 검증 중 오류:', error);
+        // 네트워크 오류 등으로 검증 실패 시에도 메인으로 이동
+        router.push('/');
+      }
     };
 
     verifyAuth();

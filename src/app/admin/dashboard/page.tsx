@@ -15,9 +15,11 @@ import {
   Target,
   RefreshCw,
   MessageCircle,
+  Users,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { getMessages, resetAllData } from '@/lib/siteData';
+import { api, isSupabaseAvailable } from '@/lib/supabase';
 
 // 탭 컴포넌트들
 import ProfileTab from '@/components/admin/ProfileTab';
@@ -26,13 +28,16 @@ import ExperienceTab from '@/components/admin/ExperienceTab';
 import ProjectsTab from '@/components/admin/ProjectsTab';
 import MessagesTab from '@/components/admin/MessagesTab';
 import InterviewsTab from '@/components/admin/InterviewsTab';
+import VisitorsTab from '@/components/admin/VisitorsTab';
 
-type TabId = 'projects' | 'messages' | 'profile' | 'competencies' | 'experience' | 'interviews' | 'settings';
+type TabId = 'projects' | 'messages' | 'profile' | 'competencies' | 'experience' | 'interviews' | 'visitors' | 'settings';
 
 export default function AdminDashboard() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabId>('projects');
   const [unreadCount, setUnreadCount] = useState(0);
+  const [projectCount, setProjectCount] = useState(0);
+  const [visitorCount, setVisitorCount] = useState(0);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -43,6 +48,7 @@ export default function AdminDashboard() {
       const authTime = localStorage.getItem('admin_auth_time');
       
       if (!token || !authTime) {
+        console.log('❌ 토큰 없음 - 메인으로 이동');
         router.push('/');
         return;
       }
@@ -50,6 +56,7 @@ export default function AdminDashboard() {
       const elapsed = Date.now() - parseInt(authTime);
       // 24시간 초과 시 만료
       if (elapsed >= 24 * 60 * 60 * 1000) {
+        console.log('⚠️ 토큰 만료 - 메인으로 이동');
         localStorage.removeItem('admin_auth_token');
         localStorage.removeItem('admin_auth_time');
         router.push('/');
@@ -64,31 +71,112 @@ export default function AdminDashboard() {
           body: JSON.stringify({ action: 'verify', token }),
         });
         
+        // 응답이 없는 경우
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        
         const data = await response.json();
         
         if (data.success && data.valid) {
+          console.log('✅ 인증 성공');
           setIsAuthenticated(true);
           setIsLoading(false);
-          return;
+        } else {
+          console.log('❌ 토큰 검증 실패');
+          localStorage.removeItem('admin_auth_token');
+          localStorage.removeItem('admin_auth_time');
+          router.push('/');
         }
-      } catch {
-        // 검증 실패
+      } catch (error) {
+        console.error('토큰 검증 오류:', error);
+        // 검증 실패 시 메인으로
+        localStorage.removeItem('admin_auth_token');
+        localStorage.removeItem('admin_auth_time');
+        router.push('/');
       }
-      
-      // 인증 실패 시 메인으로
-      localStorage.removeItem('admin_auth_token');
-      localStorage.removeItem('admin_auth_time');
-      router.push('/');
     };
 
     verifyAuth();
   }, [router]);
 
-  // 읽지 않은 메시지 수 로드
+  // 읽지 않은 메시지 수, 프로젝트 수, 방문자 수 로드
   useEffect(() => {
     if (!isAuthenticated) return;
-    const messages = getMessages();
-    setUnreadCount(messages.filter((m) => !m.isRead).length);
+    
+    const loadCounts = async () => {
+      try {
+        if (isSupabaseAvailable()) {
+          // 메시지 수
+          const messages = await api.getGuestbook();
+          const unread = messages.filter((m) => !m.is_read).length;
+          setUnreadCount(unread);
+          
+          // 프로젝트 수
+          const projects = await api.getProjects(true); // 숨김 포함
+          setProjectCount(projects.length);
+          
+          // 방문자 수 = 누적 방문자 수 (visitor_count 테이블의 누적 카운트)
+          // 프론트엔드와 동일한 API를 사용하여 일관성 유지
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10초 타임아웃
+            
+            const response = await fetch('/api/visitors', {
+              method: 'GET',
+              headers: { 'Content-Type': 'application/json' },
+              cache: 'no-store',
+              signal: controller.signal,
+            });
+            
+            clearTimeout(timeoutId);
+            
+            if (response.ok) {
+              try {
+                const result = await response.json();
+                if (result && result.success && typeof result.count === 'number' && result.count >= 0) {
+                  // 누적 방문자 수 사용
+                  setVisitorCount(result.count);
+                } else {
+                  console.warn('방문자 수 응답 형식 오류:', result);
+                  // 기존 값 유지 (0으로 리셋하지 않음)
+                }
+              } catch (parseError) {
+                console.warn('방문자 수 JSON 파싱 실패:', parseError);
+                // 기존 값 유지
+              }
+            } else {
+              console.warn(`방문자 수 HTTP 오류: ${response.status} ${response.statusText}`);
+              // 기존 값 유지
+            }
+          } catch (error: any) {
+            if (error.name === 'AbortError') {
+              console.warn('방문자 수 로드 타임아웃');
+            } else {
+              console.error('방문자 수 로드 실패:', error);
+            }
+            // 기존 값 유지 (0으로 리셋하지 않음)
+          }
+        } else {
+          // 로컬스토리지 사용 시
+          const messages = getMessages();
+          setUnreadCount(messages.filter((m) => !m.isRead).length);
+          setProjectCount(0); // 로컬스토리지에는 프로젝트 저장 안됨
+          setVisitorCount(0);
+        }
+      } catch (error) {
+        console.error('카운트 로드 실패:', error);
+        // 폴백
+        const messages = getMessages();
+        setUnreadCount(messages.filter((m) => !m.isRead).length);
+      }
+    };
+    
+    loadCounts();
+    
+    // 주기적으로 업데이트 (30초마다)
+    const interval = setInterval(loadCounts, 30000);
+    return () => clearInterval(interval);
   }, [isAuthenticated]);
 
   // 로딩 중이거나 인증 안됐으면 로딩 화면
@@ -102,13 +190,14 @@ export default function AdminDashboard() {
 
   // 탭 정의
   const tabs = [
-    { id: 'projects' as TabId, label: '프로젝트', icon: FolderOpen, badge: 0 },
+    { id: 'projects' as TabId, label: '프로젝트', icon: FolderOpen, badge: projectCount },
     { id: 'messages' as TabId, label: '메시지', icon: MessageSquare, badge: unreadCount },
-    { id: 'profile' as TabId, label: '프로필', icon: User, badge: 0 },
-    { id: 'competencies' as TabId, label: '역량', icon: Target, badge: 0 },
-    { id: 'experience' as TabId, label: '경력', icon: Briefcase, badge: 0 },
-    { id: 'interviews' as TabId, label: '인터뷰', icon: MessageCircle, badge: 0 },
-    { id: 'settings' as TabId, label: '설정', icon: Settings, badge: 0 },
+    { id: 'visitors' as TabId, label: '방문자', icon: Users, badge: visitorCount },
+    { id: 'profile' as TabId, label: '프로필', icon: User, badge: null },
+    { id: 'competencies' as TabId, label: '역량', icon: Target, badge: null },
+    { id: 'experience' as TabId, label: '경력', icon: Briefcase, badge: null },
+    { id: 'interviews' as TabId, label: '인터뷰', icon: MessageCircle, badge: null },
+    { id: 'settings' as TabId, label: '설정', icon: Settings, badge: null },
   ];
 
   // 로그아웃
@@ -144,6 +233,8 @@ export default function AdminDashboard() {
         return <ProjectsTab />;
       case 'messages':
         return <MessagesTab />;
+      case 'visitors':
+        return <VisitorsTab />;
       case 'profile':
         return <ProfileTab />;
       case 'competencies':
@@ -186,7 +277,7 @@ export default function AdminDashboard() {
             >
               <tab.icon className="w-5 h-5" />
               {tab.label}
-              {tab.badge && tab.badge > 0 ? (
+              {tab.badge !== null && tab.badge !== undefined && tab.badge > 0 ? (
                 <span className="ml-auto px-2 py-0.5 rounded-full bg-red-500 text-white text-xs font-bold">
                   {tab.badge}
                 </span>
@@ -244,7 +335,7 @@ export default function AdminDashboard() {
             >
               <tab.icon className="w-4 h-4" />
               {tab.label}
-              {tab.badge && tab.badge > 0 && (
+              {tab.badge !== null && tab.badge !== undefined && tab.badge > 0 && (
                 <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
                   {tab.badge}
                 </span>

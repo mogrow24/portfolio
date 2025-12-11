@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>방문자 ID 확인</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #fff;
+    }
+    .container {
+      background: #2a2a2a;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    h1 {
+      color: #4ade80;
+      margin-bottom: 20px;
+    }
+    .id-display {
+      background: #1a1a1a;
+      padding: 15px;
+      border-radius: 5px;
+      margin: 20px 0;
+      font-family: 'Courier New', monospace;
+      font-size: 16px;
+      word-break: break-all;
+      border: 2px solid #4ade80;
+    }
+    button {
+      background: #4ade80;
+      color: #000;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 5px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      margin: 10px 5px;
+    }
+    button:hover {
+      background: #22c55e;
+    }
+    .copy-btn {
+      background: #3b82f6;
+      color: #fff;
+    }
+    .copy-btn:hover {
+      background: #2563eb;
+    }
+    .instructions {
+      background: #1a1a1a;
+      padding: 20px;
+      border-radius: 5px;
+      margin-top: 20px;
+      border-left: 4px solid #4ade80;
+    }
+    .instructions h2 {
+      color: #4ade80;
+      margin-top: 0;
+    }
+    .instructions ol {
+      line-height: 1.8;
+    }
+    .instructions code {
+      background: #000;
+      padding: 2px 6px;
+      border-radius: 3px;
+      color: #4ade80;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔍 방문자 ID 확인 도구</h1>
+    
+    <div id="visitorIdDisplay" class="id-display">
+      확인 중...
+    </div>
+    
+    <div>
+      <button onclick="refreshId()">🔄 새로고침</button>
+      <button class="copy-btn" onclick="copyId()">📋 복사</button>
+    </div>
+    
+    <div class="instructions">
+      <h2>📋 사용 방법</h2>
+      <ol>
+        <li>위에 표시된 방문자 ID를 복사하세요.</li>
+        <li>프로젝트 루트의 <code>.env.local</code> 파일을 엽니다.</li>
+        <li>다음 줄을 추가하세요:
+          <div class="id-display" style="margin-top: 10px; font-size: 14px;">
+            USER_DEVICE_ID=여기에_복사한_ID_붙여넣기
+          </div>
+        </li>
+        <li>서버를 재시작하면 해당 기기의 방문은 카운팅되지 않습니다.</li>
+      </ol>
+    </div>
+  </div>
+
+  <script>
+    function getVisitorId() {
+      // localStorage에서 방문자 ID 가져오기
+      let visitorId = localStorage.getItem('portfolio_visitor_id');
+      
+      if (!visitorId) {
+        // ID가 없으면 생성 (실제 포트폴리오 사이트와 동일한 로직)
+        visitorId = `visitor_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        localStorage.setItem('portfolio_visitor_id', visitorId);
+      }
+      
+      return visitorId;
+    }
+    
+    function refreshId() {
+      const id = getVisitorId();
+      document.getElementById('visitorIdDisplay').textContent = id;
+    }
+    
+    function copyId() {
+      const id = getVisitorId();
+      navigator.clipboard.writeText(id).then(() => {
+        alert('✅ 방문자 ID가 클립보드에 복사되었습니다!');
+      }).catch(() => {
+        // 폴백: 텍스트 선택
+        const textArea = document.createElement('textarea');
+        textArea.value = id;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        alert('✅ 방문자 ID가 클립보드에 복사되었습니다!');
+      });
+    }
+    
+    // 페이지 로드 시 ID 표시
+    window.onload = function() {
+      refreshId();
+    };
+  </script>
+</body>
+</html>
+

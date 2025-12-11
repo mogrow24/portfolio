@@ -115,6 +115,7 @@ export interface GuestbookDB {
   reply_en?: string;
   reply_at?: string;
   is_reply_locked: boolean;
+  visitor_id?: string; // 방문자 ID
   created_at: string;
   updated_at: string;
 }
@@ -167,22 +168,35 @@ export const api = {
       return [];
     }
     
-    let query = supabase
-      .from('projects')
-      .select('*')
-      .order('order_index', { ascending: true });
-    
-    if (!includeHidden) {
-      query = query.eq('is_visible', true);
-    }
-    
-    const { data, error } = await query;
-    
-    if (error) {
-      console.error('Error fetching projects:', error);
+    try {
+      let query = supabase
+        .from('projects')
+        .select('*')
+        .order('order_index', { ascending: true });
+      
+      if (!includeHidden) {
+        query = query.eq('is_visible', true);
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        // 네트워크 오류는 조용히 처리
+        const errorMessage = error.message || String(error);
+        if (!errorMessage.includes('Failed to fetch') && !errorMessage.includes('QUIC') && !errorMessage.includes('network')) {
+          console.warn('Error fetching projects:', error);
+        }
+        return [];
+      }
+      return data || [];
+    } catch (err: any) {
+      // 네트워크 오류는 조용히 처리
+      const errorMessage = err?.message || String(err);
+      if (!errorMessage.includes('Failed to fetch') && !errorMessage.includes('QUIC') && !errorMessage.includes('network')) {
+        console.warn('Error fetching projects:', err);
+      }
       return [];
     }
-    return data || [];
   },
 
   async getProject(id: string): Promise<Project | null> {
@@ -390,16 +404,29 @@ export const api = {
       return [];
     }
     
-    const { data, error } = await supabase
-      .from('guestbook')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching guestbook:', error);
+    try {
+      const { data, error } = await supabase
+        .from('guestbook')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        // 네트워크 오류는 조용히 처리
+        const errorMessage = error.message || String(error);
+        if (!errorMessage.includes('Failed to fetch') && !errorMessage.includes('QUIC') && !errorMessage.includes('network')) {
+          console.warn('Error fetching guestbook:', error);
+        }
+        return [];
+      }
+      return data || [];
+    } catch (err: any) {
+      // 네트워크 오류는 조용히 처리
+      const errorMessage = err?.message || String(err);
+      if (!errorMessage.includes('Failed to fetch') && !errorMessage.includes('QUIC') && !errorMessage.includes('network')) {
+        console.warn('Error fetching guestbook:', err);
+      }
       return [];
     }
-    return data || [];
   },
 
   async createGuestbookMessage(message: Omit<GuestbookDB, 'id' | 'created_at' | 'updated_at' | 'is_read' | 'reply' | 'reply_en' | 'reply_at' | 'is_reply_locked'>): Promise<GuestbookDB | null> {
@@ -408,21 +435,61 @@ export const api = {
       return null;
     }
     
-    const { data, error } = await supabase
-      .from('guestbook')
-      .insert({
-        ...message,
+    try {
+      const payload = {
+        name: message.name,
+        company: message.company || null,
+        email: message.email || null,
+        message: message.message,
+        message_en: message.message_en || null,
+        allow_notification: message.allow_notification || false,
+        is_secret: message.is_secret || false,
         is_read: false,
-        is_reply_locked: false,
-      })
-      .select()
-      .single();
-    
-    if (error) {
-      console.error('Error creating guestbook message:', error);
-      return null;
+        is_reply_locked: message.is_secret || false, // 비밀글이면 답변도 비공개로 설정
+      };
+
+      // 비밀글의 경우 RLS로 인해 비인증 사용자는 select 권한이 없어 insert + select가 실패한다.
+      // -> insert는 허용되므로 반환값을 요구하지 않고 성공 여부만 확인한다.
+      if (payload.is_secret) {
+        const { error } = await supabase
+          .from('guestbook')
+          .insert(payload);
+
+        if (error) {
+          console.error('Error creating secret guestbook message:', error);
+          throw new Error(`Supabase 저장 실패: ${error.message}`);
+        }
+
+        // 비밀글은 선택적으로 null 반환 (프런트에서 성공 여부만 사용)
+        return null;
+      }
+
+      const { data, error } = await supabase
+        .from('guestbook')
+        .insert(payload)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('Error creating guestbook message:', error);
+        console.error('Error details:', {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        });
+        throw new Error(`Supabase 저장 실패: ${error.message}`);
+      }
+      
+      if (!data) {
+        throw new Error('Supabase 저장 결과가 null입니다.');
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('createGuestbookMessage 예외 발생:', error);
+      throw error;
     }
-    return data;
   },
 
   async updateGuestbookMessage(id: string, updates: Partial<GuestbookDB>): Promise<GuestbookDB | null> {

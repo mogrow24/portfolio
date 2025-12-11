@@ -145,6 +145,13 @@ body {
 /* ============================================= */
 /* 카드 컴포넌트 */
 /* ============================================= */
+.glass {
+  background: rgba(13, 13, 21, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--border-color);
+  transition: all 0.3s ease;
+}
+
 .glass-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -368,6 +375,10 @@ body {
 
 .gallery-img-box {
   overflow: hidden;
+  background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .gallery-img-box img {
@@ -375,6 +386,14 @@ body {
   height: 100%;
   object-fit: cover;
   transition: transform 0.4s ease;
+  display: block;
+  min-height: 128px;
+}
+
+@media (min-width: 768px) {
+  .gallery-img-box img {
+    min-height: 160px;
+  }
 }
 
 .gallery-card:hover .gallery-img-box img {
